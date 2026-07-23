@@ -1,0 +1,152 @@
+export interface NodeStyle {
+  fill?: string;
+  stroke?: string;
+  textColor?: string;
+  fontSize?: number;
+  scale?: number;
+}
+
+export type MapLayoutStyle =
+  | "right"
+  | "left"
+  | "down"
+  | "radial"
+  | "flowchart"
+  | "concept";
+
+export type RadialDir = "right" | "left" | "down" | "up";
+
+/** Growth direction for flowchart layout. */
+export type FlowDir = "right" | "left" | "down";
+
+/** Identifies content managed by an automatic graph generator. */
+export interface MapContentProvenance {
+  kind: "journal-concept";
+  /** Stable, generator-owned semantic identity (concept or concept pair). */
+  key: string;
+}
+
+/** Free associative / labeled link (not part of the tree hierarchy). */
+export interface MapLink {
+  id: string;
+  fromId: string;
+  toId: string;
+  label?: string;
+  /** Absent for user-created and legacy content. */
+  provenance?: MapContentProvenance;
+}
+
+export interface MindNode {
+  id: string;
+  text: string;
+  note?: string;
+  /**
+   * Images shown on the node (vault-relative `src`).
+   * Prefer this over legacy `image`.
+   */
+  images?: NodeImage[];
+  /** @deprecated Use `images`. Migrated on read. */
+  image?: string;
+  collapsed?: boolean;
+  style?: NodeStyle;
+  /** Absent for user-created and legacy content. */
+  provenance?: MapContentProvenance;
+  children: MindNode[];
+}
+
+export interface NodeImage {
+  id: string;
+  /** Vault-relative path, e.g. `assets/img-….png`. */
+  src: string;
+  /** Display width in mindmap units. */
+  width: number;
+  /** Display height in mindmap units. */
+  height: number;
+}
+
+export interface MindMapDocument {
+  version: 1;
+  title: string;
+  root: MindNode;
+  layoutStyle?: MapLayoutStyle;
+  /** Flowchart growth direction (when layoutStyle is flowchart). */
+  flowDir?: FlowDir;
+  /** Absolute canvas positions when manually arranged. Absent = auto-layout. */
+  positions?: Record<string, { x: number; y: number }>;
+  /** Preferred radial arm for root-level children (radial layout). */
+  radialDirs?: Record<string, RadialDir>;
+  /** Cross-links between any nodes (tree or floating). */
+  links?: MapLink[];
+  /** Independent node forests not attached under the root. */
+  floatingNodes?: MindNode[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LayoutNode {
+  id: string;
+  text: string;
+  note?: string;
+  images: NodeImage[];
+  collapsed: boolean;
+  style: NodeStyle;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  depth: number;
+  parentId: string | null;
+  childIds: string[];
+  hasChildren: boolean;
+  /** True when this node is from floatingNodes (not under root). */
+  floating?: boolean;
+}
+
+export interface LayoutEdge {
+  fromId: string;
+  toId: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  /** Tree hierarchy vs free associative link. */
+  kind?: "tree" | "link";
+  label?: string;
+  linkId?: string;
+}
+
+export interface LayoutResult {
+  nodes: LayoutNode[];
+  edges: LayoutEdge[];
+  width: number;
+  height: number;
+}
+
+export type LibraryFolderSort = "alpha" | "modified" | "created" | "custom";
+
+export interface VaultSettings {
+  themeId: string;
+  canvasBackground?: string;
+  defaultNodeStyle: NodeStyle;
+  defaultLayoutStyle?: MapLayoutStyle;
+  /** How Library folder siblings are ordered. */
+  libraryFolderSort?: LibraryFolderSort;
+  /** Full relative folder paths; used when libraryFolderSort is "custom". */
+  libraryFolderOrder?: string[];
+}
+
+export interface VaultEntry {
+  name: string;
+  path: string;
+  kind: "map" | "note";
+}
+
+export type ViewKind =
+  | "map"
+  | "note"
+  | "settings"
+  | "welcome"
+  | "about"
+  | "tag"
+  | "data"
+  | "history";
