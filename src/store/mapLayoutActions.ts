@@ -1,13 +1,16 @@
 import type { AppActions, GetState, SetState } from "./storeTypes";
 import { recordMapChange, scheduleMapSave } from "./storeServices";
 import type { MindMapDocument, RadialDir } from "../mindmap/types";
-import { createEmptyNode } from "../vault/vaultFs";
+import { createEmptyNode, setSidebarPrefs } from "../vault/vaultFs";
 import { commitSubtreeMove, resolveLayout } from "../mindmap/layout";
 import { collectDescendantIdsInDoc, createMapLink, placeNodeAsSiblingInDoc, reparentNodeInDoc } from "../mindmap/mapDoc";
 import { usesSpatialNavigation, normalizeLayoutStyle } from "../mindmap/layoutCatalog";
 import { pickSpatialNeighbor } from "../mindmap/spatialNav";
+import { getCanvasWrap } from "../mindmap/canvasDom";
 
-export type MapLayoutActions = Pick<AppActions, "reparentSelectedTo" | "reparentNodeTo" | "applyDropIntent" | "moveSubtree" | "resetLayoutPositions" | "setMapLayoutStyle" | "setFlowDir" | "navigate" | "addFloatingNode" | "beginLinkFrom" | "cancelLinking" | "completeLinkTo" | "confirmPendingLink" | "cancelPendingLink" | "removeLink" | "removeLinksForNode" | "setMinimapVisible" | "toggleMinimap" | "setPanZoom">;
+const SNAP_GRID = 20;
+
+export type MapLayoutActions = Pick<AppActions, "reparentSelectedTo" | "reparentNodeTo" | "applyDropIntent" | "moveSubtree" | "resetLayoutPositions" | "focusSelectedNode" | "setSnapToGrid" | "toggleSnapToGrid" | "setMapLayoutStyle" | "setFlowDir" | "navigate" | "addFloatingNode" | "beginLinkFrom" | "cancelLinking" | "completeLinkTo" | "confirmPendingLink" | "cancelPendingLink" | "removeLink" | "removeLinksForNode" | "setMinimapVisible" | "toggleMinimap" | "setPanZoom">;
 
 export function createMapLayoutActions(set: SetState, get: GetState): MapLayoutActions {
   return {
@@ -112,8 +115,8 @@ export function createMapLayoutActions(set: SetState, get: GetState): MapLayoutA
     scheduleMapSave(get, set);
   },
 
-  moveSubtree: (nodeId, dx, dy) => {
-    const { activeMap, vaultSettings } = get();
+  moveSubtree: (nodeId, dx, dy, opts) => {
+    const { activeMap, vaultSettings, snapToGrid } = get();
     if (!activeMap || (dx === 0 && dy === 0)) return;
     recordMapChange(get, set, "Move node");
     const style =
@@ -140,12 +143,62 @@ export function createMapLayoutActions(set: SetState, get: GetState): MapLayoutA
       dy,
       activeMap.floatingNodes,
     );
+    const shouldSnap = opts?.snap ?? snapToGrid;
+    if (shouldSnap) {
+      const anchor = positions[nodeId];
+      if (anchor) {
+        const snappedX = Math.round(anchor.x / SNAP_GRID) * SNAP_GRID;
+        const snappedY = Math.round(anchor.y / SNAP_GRID) * SNAP_GRID;
+        const adjX = snappedX - anchor.x;
+        const adjY = snappedY - anchor.y;
+        if (adjX !== 0 || adjY !== 0) {
+          for (const id of collectDescendantIdsInDoc(activeMap, nodeId)) {
+            const p = positions[id];
+            if (p) positions[id] = { x: p.x + adjX, y: p.y + adjY };
+          }
+        }
+      }
+    }
     set({
       activeMap: { ...activeMap, positions },
       dirtyMap: true,
     });
     scheduleMapSave(get, set);
   },
+
+  focusSelectedNode: () => {
+    const { activeMap, selectedNodeId, vaultSettings, zoom } = get();
+    if (!activeMap || !selectedNodeId) return;
+    const style = normalizeLayoutStyle(
+      activeMap.layoutStyle ?? vaultSettings.defaultLayoutStyle ?? "right",
+    );
+    const layout = resolveLayout(
+      activeMap.root,
+      vaultSettings.defaultNodeStyle,
+      style,
+      activeMap.positions,
+      null,
+      activeMap.radialDirs,
+      activeMap.floatingNodes,
+      activeMap.links,
+      activeMap.flowDir,
+    );
+    const node = layout.nodes.find((n) => n.id === selectedNodeId);
+    if (!node) return;
+    const wrap = getCanvasWrap();
+    const viewW = wrap?.clientWidth || window.innerWidth;
+    const viewH = wrap?.clientHeight || window.innerHeight;
+    const cx = node.x + node.width / 2;
+    const cy = node.y + node.height / 2;
+    set({
+      panX: viewW / 2 - cx * zoom,
+      panY: viewH / 2 - cy * zoom,
+    });
+  },
+
+  setSnapToGrid: (snapToGrid) => set({ snapToGrid }),
+
+  toggleSnapToGrid: () => set((s) => ({ snapToGrid: !s.snapToGrid })),
 
   resetLayoutPositions: () => {
     const { activeMap } = get();
@@ -395,9 +448,16 @@ export function createMapLayoutActions(set: SetState, get: GetState): MapLayoutA
     scheduleMapSave(get, set);
   },
 
-  setMinimapVisible: (visible) => set({ minimapVisible: visible }),
+  setMinimapVisible: (visible) => {
+    set({ minimapVisible: visible });
+    void setSidebarPrefs({ minimapVisible: visible });
+  },
 
-  toggleMinimap: () => set((s) => ({ minimapVisible: !s.minimapVisible })),
+  toggleMinimap: () => {
+    const minimapVisible = !get().minimapVisible;
+    set({ minimapVisible });
+    void setSidebarPrefs({ minimapVisible });
+  },
 
   setPanZoom: (panX, panY, zoom) =>
     set((s) => ({ panX, panY, zoom: zoom ?? s.zoom }))

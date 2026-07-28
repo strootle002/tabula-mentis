@@ -112,3 +112,117 @@ export const HashTag = Mark.create({
     ];
   },
 });
+
+/** Parse `[[Target]]` or `[[Target|Label]]` into target + display label. */
+export function parseWikiTarget(raw: string): { target: string; label: string } {
+  const trimmed = raw.trim();
+  const pipe = trimmed.indexOf("|");
+  if (pipe < 0) return { target: trimmed, label: trimmed };
+  const target = trimmed.slice(0, pipe).trim();
+  const label = trimmed.slice(pipe + 1).trim() || target;
+  return { target, label };
+}
+
+/** Inline [[WikiLink]] — navigable note reference. */
+export const WikiLink = Mark.create({
+  name: "wikiLink",
+  inclusive: false,
+
+  addAttributes() {
+    return {
+      target: {
+        default: null,
+        parseHTML: (el) =>
+          (el as HTMLElement).getAttribute("data-wiki") ||
+          (el as HTMLElement).textContent?.replace(/^\[\[|\]\]$/g, "") ||
+          null,
+      },
+    };
+  },
+
+  parseHTML() {
+    return [{ tag: "span.note-wiki-link" }, { tag: "span[data-wiki]" }];
+  },
+
+  renderHTML({ mark }) {
+    const target = String(mark.attrs.target ?? "");
+    return [
+      "span",
+      mergeAttributes({
+        class: "note-wiki-link",
+        "data-wiki": target,
+        title: target ? `Open [[${target}]]` : undefined,
+      }),
+      0,
+    ];
+  },
+
+  markdownTokenName: "wikiLink",
+
+  markdownTokenizer: {
+    name: "wikiLink",
+    level: "inline" as const,
+    start(src: string) {
+      return src.indexOf("[[");
+    },
+    tokenize(src: string) {
+      const match = /^\[\[([^\]]+)\]\]/.exec(src);
+      if (!match) return undefined;
+      const { target, label } = parseWikiTarget(match[1] ?? "");
+      if (!target) return undefined;
+      return {
+        type: "wikiLink",
+        raw: match[0],
+        text: label,
+        target,
+        label,
+      };
+    },
+  },
+
+  parseMarkdown(token, helpers) {
+    const target = String((token as { target?: string }).target ?? "").trim();
+    const label = String(
+      (token as { label?: string }).label ?? token.text ?? target,
+    ).trim();
+    if (!target) return [];
+    return helpers.applyMark(
+      "wikiLink",
+      [helpers.createTextNode(label || target)],
+      { target },
+    );
+  },
+
+  renderMarkdown(node) {
+    const target = String(node.attrs?.target ?? "").trim();
+    const label = String(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (node.content?.[0] as any)?.text ?? target,
+    ).trim();
+    if (!target) return label;
+    if (!label || label === target) return `[[${target}]]`;
+    return `[[${target}|${label}]]`;
+  },
+
+  addInputRules() {
+    const type = this.type;
+    return [
+      new InputRule({
+        find: /\[\[([^\]]+)\]\]$/,
+        handler: ({ state, range, match }) => {
+          const inner = match[1] ?? "";
+          const { target, label } = parseWikiTarget(inner);
+          if (!target) return null;
+          const { tr } = state;
+          tr.insertText(label, range.from, range.to);
+          tr.addMark(
+            range.from,
+            range.from + label.length,
+            type.create({ target }),
+          );
+          tr.removeStoredMark(type);
+        },
+      }),
+    ];
+  },
+});

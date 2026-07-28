@@ -4,6 +4,7 @@ import {
   extractTags,
   type NoteIndexEntry,
 } from "../notes/links";
+import { slugify } from "../vault/vaultFs";
 
 export interface NoteMetadata {
   name: string;
@@ -16,6 +17,18 @@ export interface IncrementalIndex {
   mapTagsByPath: Record<string, string[]>;
 }
 
+/**
+ * The tag a map's root node stands for: every map joins the vault's tag
+ * vocabulary under its root title, so it appears in the tag browser and tag
+ * page like any explicit #tag. Returns null when there is no usable title.
+ */
+export function rootNodeTag(
+  map: Pick<MindMapDocument, "root" | "title">,
+): string | null {
+  const source = map.root.text.trim() || map.title.trim();
+  return source ? slugify(source) : null;
+}
+
 function collectNodeTags(node: MindNode, tags: Set<string>): void {
   if (node.note) {
     for (const tag of extractTags(node.note)) tags.add(tag);
@@ -23,9 +36,14 @@ function collectNodeTags(node: MindNode, tags: Set<string>): void {
   for (const child of node.children) collectNodeTags(child, tags);
 }
 
-/** Extract tags from every map node, including independent floating forests. */
+/**
+ * Extract tags from every map node, including independent floating forests.
+ * The map's own root tag is always part of the set.
+ */
 export function extractMapNodeTags(map: MindMapDocument): string[] {
   const tags = new Set<string>();
+  const rootTag = rootNodeTag(map);
+  if (rootTag) tags.add(rootTag);
   collectNodeTags(map.root, tags);
   for (const node of map.floatingNodes ?? []) collectNodeTags(node, tags);
   return [...tags].sort();

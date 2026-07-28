@@ -38,14 +38,24 @@ export function createUiNavigationActions<T extends UiNavigationState>(
 ) {
   return {
     setImportOpen: (importOpen: boolean) => set({ importOpen } as Partial<T>),
-    setNodePanelOpen: (nodePanelOpen: boolean) =>
-      set({ nodePanelOpen } as Partial<T>),
-    toggleNodePanel: () =>
-      set((state) => ({ nodePanelOpen: !state.nodePanelOpen }) as Partial<T>),
-    setNoteAsideOpen: (noteAsideOpen: boolean) =>
-      set({ noteAsideOpen } as Partial<T>),
-    toggleNoteAside: () =>
-      set((state) => ({ noteAsideOpen: !state.noteAsideOpen }) as Partial<T>),
+    setNodePanelOpen: (nodePanelOpen: boolean) => {
+      set({ nodePanelOpen } as Partial<T>);
+      void setSidebarPrefs({ nodePanelOpen });
+    },
+    toggleNodePanel: () => {
+      const nodePanelOpen = !get().nodePanelOpen;
+      set({ nodePanelOpen } as Partial<T>);
+      void setSidebarPrefs({ nodePanelOpen });
+    },
+    setNoteAsideOpen: (noteAsideOpen: boolean) => {
+      set({ noteAsideOpen } as Partial<T>);
+      void setSidebarPrefs({ noteAsideOpen });
+    },
+    toggleNoteAside: () => {
+      const noteAsideOpen = !get().noteAsideOpen;
+      set({ noteAsideOpen } as Partial<T>);
+      void setSidebarPrefs({ noteAsideOpen });
+    },
     openCreateDialog: (
       kind: CreateDialogState["kind"],
       folderKind?: CreateDialogState["folderKind"],

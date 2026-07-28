@@ -60,6 +60,7 @@ export function MainView() {
   const dirtyNote = useAppStore((s) => s.dirtyNote);
   const dirtyTagNote = useAppStore((s) => s.dirtyTagNote);
   const nodePanelOpen = useAppStore((s) => s.nodePanelOpen);
+  const presentationMode = useAppStore((s) => s.presentationMode);
   const setFlowDir = useAppStore((s) => s.setFlowDir);
   const vaultSettings = useAppStore((s) => s.vaultSettings);
 
@@ -96,19 +97,21 @@ export function MainView() {
   const flowDir = activeMap?.flowDir ?? "down";
 
   return (
-    <div className="main">
-      <div className="toolbar">
-        <h2>
-          {title}
-          {(view === "map" && dirtyMap) ||
-          (view === "note" && dirtyNote) ||
-          (view === "tag" && dirtyTagNote)
-            ? " ·"
-            : ""}
-        </h2>
-      </div>
+    <div className={`main${presentationMode ? " is-presenting" : ""}`}>
+      {!presentationMode && (
+        <div className="toolbar">
+          <h2>
+            {title}
+            {((view === "map" && dirtyMap) ||
+              (view === "note" && dirtyNote) ||
+              (view === "tag" && dirtyTagNote)) && (
+              <span className="unsaved-pill">Unsaved</span>
+            )}
+          </h2>
+        </div>
+      )}
 
-      {view === "map" && activeMap && (
+      {!presentationMode && view === "map" && activeMap && (
         <div className="map-mode-bar">
           <span className="map-mode-badge">
             {layoutLabel(mapStyle, activeMap.flowDir)}
@@ -135,12 +138,14 @@ export function MainView() {
       )}
 
       <Suspense fallback={<div className="empty-state"><p>Loading view…</p></div>}>
-        {view === "map" && <MindmapToolbar />}
+        {!presentationMode && view === "map" && <MindmapToolbar />}
 
         {view === "map" && (
-          <div className={`content-row ${nodePanelOpen ? "" : "full"}`}>
+          <div
+            className={`content-row ${presentationMode || !nodePanelOpen ? "full" : ""}`}
+          >
             <MindmapCanvas />
-            {nodePanelOpen && <NodePanel />}
+            {!presentationMode && nodePanelOpen && <NodePanel />}
           </div>
         )}
         {view === "note" && <NoteEditor />}

@@ -9,6 +9,7 @@ export type KeyAction =
   | "edit"
   | "toggle-collapse"
   | "toggle-node-panel"
+  | "focus-node"
   | "escape"
   | "undo"
   | "redo";
@@ -35,6 +36,7 @@ export const KEY_ACTION_LABELS: Record<KeyAction, string> = {
   edit: "Edit node",
   "toggle-collapse": "Collapse / expand",
   "toggle-node-panel": "Toggle node notes panel",
+  "focus-node": "Center selected node",
   escape: "Cancel / close",
   undo: "Undo",
   redo: "Redo",
@@ -52,6 +54,7 @@ export const DEFAULT_KEYBINDINGS: Record<KeyAction, KeyChord[]> = {
   edit: [{ key: "F2" }],
   "toggle-collapse": [{ key: " " }],
   "toggle-node-panel": [{ key: "n", mod: true }],
+  "focus-node": [{ key: "f" }],
   escape: [{ key: "Escape" }],
   undo: [{ key: "z", mod: true }],
   redo: [

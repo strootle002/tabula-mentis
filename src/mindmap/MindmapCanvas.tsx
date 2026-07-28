@@ -8,7 +8,7 @@ import {
   resolveDropIntent,
   type DropIntent,
 } from "./dropZones";
-import { collectDescendantIdsInDoc, findNodeInDoc } from "./mapDoc";
+import { collectDescendantIdsInDoc, findNodeInDoc, focusPathIds } from "./mapDoc";
 import { Minimap } from "./Minimap";
 import { normalizeLayoutStyle } from "./layoutCatalog";
 import { resolveKeyAction } from "./keymap";
@@ -234,6 +234,18 @@ export function MindmapCanvas() {
   const confirmPendingLink = useAppStore((s) => s.confirmPendingLink);
   const cancelPendingLink = useAppStore((s) => s.cancelPendingLink);
   const minimapVisible = useAppStore((s) => s.minimapVisible);
+  const selectedNodeIds = useAppStore((s) => s.selectedNodeIds);
+  const toggleNodeSelection = useAppStore((s) => s.toggleNodeSelection);
+  const deleteSelectedNodes = useAppStore((s) => s.deleteSelectedNodes);
+  const copySelectedSubtree = useAppStore((s) => s.copySelectedSubtree);
+  const pasteSubtreeFromClipboard = useAppStore(
+    (s) => s.pasteSubtreeFromClipboard,
+  );
+  const focusSelectedNode = useAppStore((s) => s.focusSelectedNode);
+  const snapToGrid = useAppStore((s) => s.snapToGrid);
+  const pushToast = useAppStore((s) => s.pushToast);
+  const updateVaultSettings = useAppStore((s) => s.updateVaultSettings);
+  const presentationMode = useAppStore((s) => s.presentationMode);
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -307,6 +319,28 @@ export function MindmapCanvas() {
     dragOffset.x,
     dragOffset.y,
   ]);
+
+  const presentPath = useMemo(
+    () =>
+      presentationMode && activeMap
+        ? focusPathIds(activeMap, selectedNodeId)
+        : null,
+    [presentationMode, activeMap, selectedNodeId],
+  );
+
+  const panningRef = useRef(false);
+  useEffect(() => {
+    panningRef.current = panning;
+  });
+
+  useEffect(() => {
+    if (!presentationMode || !selectedNodeId) return;
+    const timer = window.setTimeout(() => {
+      if (panningRef.current || dragIdRef.current) return;
+      focusSelectedNode();
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [presentationMode, selectedNodeId, focusSelectedNode]);
 
   const [viewSize, setViewSize] = useState({ w: 800, h: 600 });
   useEffect(() => {
@@ -503,6 +537,7 @@ export function MindmapCanvas() {
   }, [editingNodeId, layout, editValue]);
 
   const beginEdit = (nodeId: string) => {
+    if (useAppStore.getState().presentationMode) return;
     suppressEditBlurRef.current = true;
     pendingSelectAllRef.current = true;
     // Single store update — setSelectedNode alone would clear editingNodeId.
@@ -596,7 +631,7 @@ export function MindmapCanvas() {
     panStart.current = null;
   };
 
-  const commitDragFromRefs = () => {
+  const commitDragFromRefs = (shiftKey = false) => {
     const id = dragIdRef.current;
     if (!id) return;
     const { x: dx, y: dy } = dragOffsetRef.current;
@@ -604,7 +639,7 @@ export function MindmapCanvas() {
     if (intent && intent.targetId !== id) {
       applyDropIntentAction(id, intent);
     } else if (Math.hypot(dx, dy) > 1) {
-      moveSubtree(id, dx, dy);
+      moveSubtree(id, dx, dy, { snap: shiftKey || snapToGrid });
     }
   };
 
@@ -667,7 +702,7 @@ export function MindmapCanvas() {
 
   const onPointerUp = (e: React.PointerEvent) => {
     if (dragIdRef.current) {
-      commitDragFromRefs();
+      commitDragFromRefs(e.shiftKey);
     }
     clearPointerInteraction();
     try {
@@ -691,6 +726,25 @@ export function MindmapCanvas() {
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    const presenting = presentationMode;
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && !e.altKey && !editingNodeId && !presenting) {
+      const key = e.key.toLowerCase();
+      if (key === "c" && selectedNodeId) {
+        e.preventDefault();
+        void copySelectedSubtree().then((ok) => {
+          if (ok) pushToast("Copied subtree", "success");
+        });
+        return;
+      }
+      if (key === "v") {
+        e.preventDefault();
+        void pasteSubtreeFromClipboard().then((ok) => {
+          if (ok) pushToast("Pasted subtree", "success");
+        });
+        return;
+      }
+    }
     const action = resolveKeyAction(e.nativeEvent);
     if (!action) return;
     e.preventDefault();
@@ -708,34 +762,38 @@ export function MindmapCanvas() {
         navigate("down");
         break;
       case "add-child":
-        addChildToSelected();
+        if (!presenting) addChildToSelected();
         break;
       case "add-sibling":
-        addSiblingToSelected();
+        if (!presenting) addSiblingToSelected();
         break;
       case "delete":
-        deleteSelected();
+        if (!presenting) deleteSelectedNodes();
         break;
       case "edit":
-        if (selectedNodeId) beginEdit(selectedNodeId);
+        if (!presenting && selectedNodeId) beginEdit(selectedNodeId);
         break;
       case "toggle-collapse":
         toggleCollapseSelected();
         break;
       case "toggle-node-panel":
-        toggleNodePanel();
+        if (!presenting) toggleNodePanel();
+        break;
+      case "focus-node":
+        focusSelectedNode();
         break;
       case "undo":
-        undo();
+        if (!presenting) undo();
         break;
       case "redo":
-        redo();
+        if (!presenting) redo();
         break;
       case "escape":
         if (lightbox) {
           setLightbox(null);
           break;
         }
+        if (presenting) break;
         cancelEdit();
         cancelLinking();
         cancelPendingLink();
@@ -815,6 +873,10 @@ export function MindmapCanvas() {
   };
 
   const editingNode = layout.nodes.find((n) => n.id === editingNodeId);
+  const isEmptyMap =
+    activeMap.root.children.length === 0 &&
+    !(activeMap.floatingNodes?.length);
+  const showOnboarding = isEmptyMap && !vaultSettings.mapHintsDismissed;
 
   return (
     <div
@@ -824,6 +886,11 @@ export function MindmapCanvas() {
       onPaste={(e) => {
         handleNodeImagePaste(e);
       }}
+      style={
+        vaultSettings.canvasBackground
+          ? ({ "--canvas": vaultSettings.canvasBackground } as React.CSSProperties)
+          : undefined
+      }
       data-svg-export-root
     >
       {dragId && (
@@ -836,11 +903,25 @@ export function MindmapCanvas() {
           Click a node to link · Esc to cancel
         </div>
       )}
+      {showOnboarding && !presentationMode && (
+        <div className="canvas-onboarding">
+          <span>
+            This map is empty. Press <kbd>Tab</kbd> or use “+ Child” in the
+            toolbar to add your first idea.
+          </span>
+          <button
+            type="button"
+            onClick={() => void updateVaultSettings({ mapHintsDismissed: true })}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       <svg
         ref={svgRef}
         role="tree"
         aria-label={`Map: ${activeMap.title}. Use arrow keys to move between nodes.`}
-        className={`mindmap-svg ${panning ? "panning" : ""} ${dragId ? "dragging" : ""} ${linkingFromId ? "linking" : ""}`}
+        className={`mindmap-svg ${panning ? "panning" : ""} ${dragId ? "dragging" : ""} ${linkingFromId ? "linking" : ""} ${presentationMode ? "presentation" : ""}`}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -905,12 +986,16 @@ export function MindmapCanvas() {
                   : `M ${edge.x1} ${edge.y1} C ${mx} ${edge.y1}, ${mx} ${edge.y2}, ${edge.x2} ${edge.y2}`;
             const showArrow =
               isLink || layoutStyle === "flowchart" || layoutStyle === "concept";
+            const edgeOnPath =
+              !presentPath ||
+              (presentPath.has(edge.fromId) && presentPath.has(edge.toId));
             return (
               <g
                 key={`${edge.kind ?? "tree"}-${edge.fromId}-${edge.toId}-${edge.linkId ?? ""}`}
-                className={isLink ? "edge-link-group" : undefined}
+                className={`${isLink ? "edge-link-group" : ""} ${edgeOnPath ? "" : "present-dim"}`.trim()}
+                opacity={edgeOnPath ? 1 : 0.28}
                 onContextMenu={
-                  isLink && edge.linkId
+                  isLink && edge.linkId && !presentationMode
                     ? (e) => openLinkMenu(e, edge.linkId!)
                     : undefined
                 }
@@ -990,18 +1075,25 @@ export function MindmapCanvas() {
           })}
           {layout.nodes.map((node) => {
             const selected = node.id === selectedNodeId;
+            const multiSelected =
+              selectedNodeIds.includes(node.id) && node.id !== selectedNodeId;
             const isDrop = dropIntent?.targetId === node.id;
             const isDrag = node.id === dragId;
             const isRoot = !node.parentId && !node.floating;
             const isRadialRoot = layoutStyle === "radial" && isRoot;
             const isLinkSource = linkingFromId === node.id;
+            const onPresentPath = presentPath?.has(node.id) ?? false;
+            const presentDim = !!presentPath && !onPresentPath;
+            const presentFocus = !!presentPath && onPresentPath;
             const fill = node.style.fill || cssVar("--node-fill", "#f4f1ea");
             const stroke = isLinkSource
               ? cssVar("--accent", "#1a7a62")
               : isDrop
                 ? cssVar("--accent", "#1a7a62")
-                : selected
+                : selected || multiSelected
                   ? cssVar("--focus", "#1a7a62")
+                  : presentFocus
+                    ? cssVar("--accent", "#1a7a62")
                   : isRadialRoot
                     ? cssVar("--accent", "#1a7a62")
                     : node.floating
@@ -1022,10 +1114,18 @@ export function MindmapCanvas() {
                 aria-selected={selected}
                 aria-label={`${node.text || "Untitled node"}${node.hasChildren ? `, ${node.collapsed ? "collapsed" : "expanded"}` : ""}`}
                 aria-expanded={node.hasChildren ? !node.collapsed : undefined}
-                className={`node-group ${isRadialRoot ? "radial-root" : ""} ${node.floating ? "floating-node" : ""}`}
-                opacity={isDrag ? 0.9 : 1}
+                className={`node-group ${isRadialRoot ? "radial-root" : ""} ${node.floating ? "floating-node" : ""} ${multiSelected ? "multi-selected" : ""} ${presentFocus ? "present-focus" : ""} ${presentDim ? "present-dim" : ""} ${selected && presentationMode ? "present-selected" : ""}`}
+                opacity={isDrag ? 0.9 : presentDim ? 0.32 : 1}
                 transform={`translate(${node.x}, ${node.y})`}
-                style={{ cursor: linkingFromId ? "crosshair" : dragId ? "grabbing" : "grab" }}
+                style={{
+                  cursor: linkingFromId
+                    ? "crosshair"
+                    : presentationMode
+                      ? "pointer"
+                      : dragId
+                        ? "grabbing"
+                        : "grab",
+                }}
                 onFocus={() => setSelectedNode(node.id)}
                 onKeyDown={(e) => {
                   // Space keeps a fast collapse affordance on the focused node;
@@ -1041,43 +1141,59 @@ export function MindmapCanvas() {
                   if (e.button !== 0) return;
                   e.stopPropagation();
                   closeMenu();
-                  if (linkingFromId) {
+                  if (linkingFromId && !presentationMode) {
                     completeLinkTo(node.id);
+                    return;
+                  }
+                  if (e.shiftKey && !presentationMode) {
+                    toggleNodeSelection(node.id);
                     return;
                   }
                   // Double-click (detail >= 2): enter edit like F2, skip drag.
                   if (e.detail >= 2) {
                     e.preventDefault();
-                    beginEdit(node.id);
+                    if (!presentationMode) beginEdit(node.id);
                     return;
                   }
-                  dragOrigin.current = {
-                    x: e.clientX,
-                    y: e.clientY,
-                    id: node.id,
-                  };
+                  if (!presentationMode) {
+                    dragOrigin.current = {
+                      x: e.clientX,
+                      y: e.clientY,
+                      id: node.id,
+                    };
+                  }
                   setSelectedNode(node.id);
                   nodeRefs.current.get(node.id)?.focus();
-                  try {
-                    svgRef.current?.setPointerCapture(e.pointerId);
-                  } catch {
-                    /* ignore */
+                  if (!presentationMode) {
+                    try {
+                      svgRef.current?.setPointerCapture(e.pointerId);
+                    } catch {
+                      /* ignore */
+                    }
                   }
                 }}
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (linkingFromId) return;
+                  if (linkingFromId || e.shiftKey) return;
                   setSelectedNode(node.id);
                 }}
                 onDoubleClick={(e) => {
                   e.stopPropagation();
                   e.preventDefault();
-                  beginEdit(node.id);
+                  if (!presentationMode) beginEdit(node.id);
                 }}
-                onContextMenu={(e) => openNodeMenu(e, node.id)}
+                onContextMenu={(e) => {
+                  if (presentationMode) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setSelectedNode(node.id);
+                    return;
+                  }
+                  openNodeMenu(e, node.id);
+                }}
               >
                 <rect
-                  className={`node-rect ${selected ? "selected" : ""} ${isDrop ? "drop-target" : ""} ${isRadialRoot ? "root-node" : ""} ${node.floating ? "floating" : ""}`}
+                  className={`node-rect ${selected ? "selected" : ""} ${multiSelected ? "multi-selected" : ""} ${isDrop ? "drop-target" : ""} ${isRadialRoot ? "root-node" : ""} ${node.floating ? "floating" : ""} ${presentFocus ? "present-focus" : ""} ${selected && presentationMode ? "present-selected" : ""}`}
                   width={node.width}
                   height={node.height}
                   rx={isRadialRoot ? 14 : node.floating ? 4 : 10}
@@ -1085,11 +1201,17 @@ export function MindmapCanvas() {
                   fill={fill}
                   stroke={stroke}
                   strokeWidth={
-                    isLinkSource || isDrop || selected
-                      ? 2.5
-                      : isRadialRoot
+                    selected && presentationMode
+                      ? 3.5
+                      : presentFocus
                         ? 2.75
-                        : 1.5
+                        : selected
+                          ? 3.25
+                          : isLinkSource || isDrop || multiSelected
+                            ? 2.5
+                            : isRadialRoot
+                              ? 2.75
+                              : 1.5
                   }
                   strokeDasharray={node.floating ? "5 3" : undefined}
                 />
@@ -1417,7 +1539,7 @@ export function MindmapCanvas() {
         </div>
       )}
 
-      {minimapVisible && layout && (
+      {minimapVisible && !presentationMode && layout && (
         <Minimap
           layout={layout}
           panX={panX}

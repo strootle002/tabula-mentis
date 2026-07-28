@@ -7,6 +7,7 @@ import {
   scheduleTagNoteSave,
   flushPendingSaves,
   rememberSavedNote,
+  maybeToastSaved,
 } from "./storeServices";
 import {
   archiveEntry,
@@ -23,13 +24,15 @@ import {
 } from "../vault/vaultFs";
 import { emptyJournalTemplate, ensureTodaySection, isContinuousJournal, isJournalNote, isJournalNoteName, isDailyJournalMerged, JOURNAL_NOTE_FILE, JOURNALS_FOLDER, mergeDailyJournals } from "../notes/journals";
 import { allTags, collectTagHitsFromNotes, extractTags, linesWithTag, relatedTags } from "../notes/links";
-import { upsertNoteIndex } from "./indexing";
+import { withRecentPath } from "../notes/libraryTree";
+import { rootNodeTag, upsertNoteIndex } from "./indexing";
 
 export type NoteActions = Pick<
   AppActions,
   | "openNote"
   | "createNote"
   | "openTodayJournal"
+  | "setJournalFocusDate"
   | "syncConceptGraphFromJournals"
   | "openConceptGraph"
   | "setNoteContent"
@@ -62,6 +65,19 @@ function scanMapTagHits(
     const hits = [...noteHits];
     for (const { meta, map } of records) {
       if (!map) continue;
+      // A map whose root represents this tag links back to its root node.
+      if (rootNodeTag(map) === tag) {
+        const label = map.root.text.trim() || map.title;
+        hits.push({
+          source: "node",
+          noteName: label,
+          mapName: map.title,
+          mapPath: meta.path,
+          nodeId: map.root.id,
+          line: label,
+          lineNumber: 1,
+        });
+      }
       for (const ref of collectDocumentNodeNoteRefs(map)) {
         for (const row of linesWithTag(ref.note, tag)) {
           hits.push({
@@ -96,19 +112,26 @@ export function createNoteActions(set: SetState, get: GetState): NoteActions {
         dirtyNote: false,
         error: null,
       });
+      void get().updateVaultSettings({
+        recentPaths: withRecentPath(get().vaultSettings.recentPaths, {
+          kind: "note",
+          path,
+          name,
+        }),
+      });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       set({ error: `Could not open note: ${message}` });
     }
   },
 
-  createNote: async (title = "Untitled Note", folder = "") => {
+  createNote: async (title = "Untitled Note", folder = "", content) => {
     const { vaultPath } = get();
     if (!vaultPath) return;
     try {
-      const content = `# ${title}\n\n`;
+      const body = content ?? `# ${title}\n\n`;
       const fileName = await uniqueNoteFileName(vaultPath, title, folder);
-      const path = await saveNote(vaultPath, fileName, content, folder);
+      const path = await saveNote(vaultPath, fileName, body, folder);
       set({ createDialog: null, error: null });
       await get().refreshVault();
       await get().openNote(path);
@@ -204,6 +227,8 @@ export function createNoteActions(set: SetState, get: GetState): NoteActions {
     }
   },
 
+  setJournalFocusDate: (dateKey) => set({ journalFocusDate: dateKey }),
+
   // Concept graph is disabled for now (too glitchy). Kept as no-ops so older
   // vaults / callers do not break if they still reference these actions.
   syncConceptGraphFromJournals: async () => {},
@@ -227,6 +252,7 @@ export function createNoteActions(set: SetState, get: GetState): NoteActions {
       return;
     }
     const meta = get().notes.find((n) => n.path === activeNotePath);
+    if (get().dirtyNote) maybeToastSaved(get);
     set({
       dirtyNote: false,
       ...(meta

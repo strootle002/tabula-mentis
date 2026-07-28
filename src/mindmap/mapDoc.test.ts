@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { MindMapDocument } from "./types";
 import {
   findNodeInDoc,
+  focusPathIds,
   placeNodeAsSiblingInDoc,
   reparentNodeInDoc,
 } from "./mapDoc";
@@ -71,5 +72,22 @@ describe("document-wide node moves", () => {
   it("rejects cycles without cloning the document", () => {
     const original = document();
     expect(reparentNodeInDoc(original, "tree", "target")).toBe(original);
+  });
+});
+
+describe("focusPathIds", () => {
+  it("includes ancestors, the selection, and descendants", () => {
+    const ids = focusPathIds(document(), "target");
+    expect([...ids].sort()).toEqual(["root", "target", "tree"]);
+  });
+
+  it("includes a floating forest when a float child is selected", () => {
+    const ids = focusPathIds(document(), "float-child");
+    expect([...ids].sort()).toEqual(["float", "float-child"]);
+  });
+
+  it("returns empty for a missing selection", () => {
+    expect(focusPathIds(document(), null).size).toBe(0);
+    expect(focusPathIds(document(), "missing").size).toBe(0);
   });
 });

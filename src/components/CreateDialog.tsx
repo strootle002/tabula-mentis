@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAppStore } from "../store/appStore";
 import type { MapLayoutStyle } from "../mindmap/types";
-import { ALL_LAYOUTS } from "../mindmap/layoutCatalog";
+import { SELECTABLE_LAYOUTS } from "../mindmap/layoutCatalog";
 import { useAccessibleDialog } from "./useAccessibleDialog";
 
 export function CreateDialog() {
@@ -9,14 +9,17 @@ export function CreateDialog() {
   const closeCreateDialog = useAppStore((s) => s.closeCreateDialog);
   const openCreateDialog = useAppStore((s) => s.openCreateDialog);
   const createMap = useAppStore((s) => s.createMap);
+  const createMapFromTemplate = useAppStore((s) => s.createMapFromTemplate);
   const createNote = useAppStore((s) => s.createNote);
   const createFolder = useAppStore((s) => s.createFolder);
   const noteFolders = useAppStore((s) => s.noteFolders);
   const mapFolders = useAppStore((s) => s.mapFolders);
+  const mapTemplates = useAppStore((s) => s.mapTemplates);
 
   const [title, setTitle] = useState("");
   const [layout, setLayout] = useState<MapLayoutStyle>("right");
   const [folder, setFolder] = useState("");
+  const [mapTemplatePath, setMapTemplatePath] = useState("");
   const titleInputRef = useRef<HTMLInputElement>(null);
   const { dialogProps, titleId } = useAccessibleDialog(
     !!createDialog,
@@ -37,6 +40,7 @@ export function CreateDialog() {
     );
     setLayout("right");
     setFolder("");
+    setMapTemplatePath("");
   }, [createDialog]);
 
   if (!createDialog) return null;
@@ -98,11 +102,16 @@ export function CreateDialog() {
         : "New folder";
 
   const submit = () => {
-    if (kind === "map")
-      void createMap(title.trim() || "Untitled Map", layout, folder.trim());
-    else if (kind === "note")
+    if (kind === "map") {
+      const mapTitle = title.trim() || "Untitled Map";
+      if (mapTemplatePath) {
+        void createMapFromTemplate(mapTemplatePath, mapTitle, folder.trim());
+      } else {
+        void createMap(mapTitle, layout, folder.trim());
+      }
+    } else if (kind === "note") {
       void createNote(title.trim() || "Untitled Note", folder.trim());
-    else void createFolder(title.trim());
+    } else void createFolder(title.trim());
   };
 
   return (
@@ -135,14 +144,41 @@ export function CreateDialog() {
           <div className="field">
             <label>Layout style</label>
             <div className="create-layout-grid">
-              {ALL_LAYOUTS.map((l) => (
+              {SELECTABLE_LAYOUTS.map((l) => (
                 <button
                   key={l.id}
                   type="button"
-                  className={`theme-card ${layout === l.id ? "active" : ""}`}
+                  className={`theme-card ${layout === l.id && !mapTemplatePath ? "active" : ""}`}
+                  disabled={!!mapTemplatePath}
                   onClick={() => setLayout(l.id)}
                 >
                   <strong>{l.label}</strong>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {kind === "map" && mapTemplates.length > 0 && (
+          <div className="field">
+            <label>Template</label>
+            <div className="create-layout-grid">
+              <button
+                type="button"
+                className={`theme-card ${!mapTemplatePath ? "active" : ""}`}
+                onClick={() => setMapTemplatePath("")}
+              >
+                <strong>Blank</strong>
+                <div className="hint">Start from scratch</div>
+              </button>
+              {mapTemplates.map((t) => (
+                <button
+                  key={t.path}
+                  type="button"
+                  className={`theme-card ${mapTemplatePath === t.path ? "active" : ""}`}
+                  onClick={() => setMapTemplatePath(t.path)}
+                >
+                  <strong>{t.name}</strong>
                 </button>
               ))}
             </div>

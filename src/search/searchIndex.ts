@@ -1,5 +1,6 @@
 import type { MindMapDocument, MindNode } from "../mindmap/types";
 import type { NoteIndexEntry } from "../notes/links";
+import { rootNodeTag } from "../store/indexing";
 
 export type SearchKind = "note" | "map" | "node";
 
@@ -191,6 +192,8 @@ export function mapSearchDocuments(
   mapPath: string,
   map: MindMapDocument,
 ): SearchDocument[] {
+  const mapTag = rootNodeTag(map);
+  const mapTags = mapTag ? [mapTag] : undefined;
   const documents: SearchDocument[] = [
     {
       id: `map:${mapPath}`,
@@ -199,10 +202,20 @@ export function mapSearchDocuments(
       content: map.title,
       path: mapPath,
       mapPath,
+      // Every map doubles as a tag under its root title — index the slug so
+      // Ctrl+K finds the map when searching that tag form (e.g. "my-project").
+      tags: mapTags,
     },
   ];
   const add = (document: SearchDocument) => documents.push(document);
   visitNode(map.root, mapPath, [map.title], add);
+  // Attach the map-as-tag to the root node entry too, so a hit can focus it.
+  if (mapTags) {
+    const rootDoc = documents.find(
+      (document) => document.nodeId === map.root.id,
+    );
+    if (rootDoc) rootDoc.tags = mapTags;
+  }
   for (const floating of map.floatingNodes ?? []) {
     visitNode(floating, mapPath, [map.title, "Floating"], add);
   }

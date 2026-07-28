@@ -9,19 +9,39 @@ export async function openExternalHref(href: string): Promise<void> {
   await openUrl(href.trim());
 }
 
+export type NoteLinkHandlers = {
+  onError?: (message: string) => void;
+  /** Open a note by wiki target title (e.g. from [[Target]]). */
+  onWikiTarget?: (target: string) => void;
+};
+
 /**
- * Handle an editor anchor click. Always preventDefault for `<a>` so the Tauri
- * webview never tries to navigate (which shows "URL could not be displayed"
- * and can trigger bogus disk reads).
+ * Handle an editor anchor / wiki-link / tag click. Always preventDefault for
+ * `<a>` so the Tauri webview never tries to navigate.
  *
- * Returns true when the event targeted a link (handled or intentionally ignored).
+ * Returns true when the event targeted a link-like element.
  */
 export function handleNoteEditorLinkClick(
   e: { preventDefault: () => void; target: EventTarget | null },
-  onError?: (message: string) => void,
+  onErrorOrHandlers?: ((message: string) => void) | NoteLinkHandlers,
 ): boolean {
+  const handlers: NoteLinkHandlers =
+    typeof onErrorOrHandlers === "function"
+      ? { onError: onErrorOrHandlers }
+      : (onErrorOrHandlers ?? {});
+
   const el = e.target;
   if (!(el instanceof Element)) return false;
+
+  const wikiEl = el.closest(".note-wiki-link");
+  if (wikiEl instanceof HTMLElement) {
+    e.preventDefault();
+    const target =
+      wikiEl.getAttribute("data-wiki") ||
+      (wikiEl.textContent ?? "").trim();
+    if (target) handlers.onWikiTarget?.(target);
+    return true;
+  }
 
   const tagEl = el.closest(".note-tag");
   if (tagEl instanceof HTMLElement) {
@@ -38,20 +58,22 @@ export function handleNoteEditorLinkClick(
 
   // Ignore legacy wiki: hrefs from older notes — do not create pages.
   if (href.toLowerCase().startsWith("wiki:")) {
+    const target = href.slice("wiki:".length).trim();
+    if (target) handlers.onWikiTarget?.(decodeURIComponent(target));
     return true;
   }
 
   if (isExternalHref(href)) {
     void openExternalHref(href).catch((err) => {
-      onError?.(
+      handlers.onError?.(
         `Could not open link: ${err instanceof Error ? err.message : String(err)}`,
       );
     });
     return true;
   }
 
-  onError?.(
-    `Cannot open “${href}” inside Tabula Mentis. Use an https://… web link instead.`,
+  handlers.onError?.(
+    `Cannot open “${href}” inside Tabula Mentis. Use an https://… web link or [[WikiLink]] instead.`,
   );
   return true;
 }

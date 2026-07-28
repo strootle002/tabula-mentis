@@ -5,6 +5,8 @@ import { MainView } from "./components/MainView";
 import { MenuBar } from "./components/MenuBar";
 import { CollapseIcon } from "./components/navIcons";
 import { useAccessibleDialog } from "./components/useAccessibleDialog";
+import { ToastStack } from "./components/ToastStack";
+import { ConfirmDialog } from "./components/ConfirmDialog";
 import { resolveTransientLinkingState } from "./mindmap/transientInteraction";
 import { SearchPalette } from "./search/SearchPalette";
 import { flushPendingAppSaves, useAppStore } from "./store/appStore";
@@ -122,6 +124,25 @@ function AboutModal() {
   );
 }
 
+function ConfirmDialogHost() {
+  const confirmDialog = useAppStore((s) => s.confirmDialog);
+  const resolveAndClose = (ok: boolean) => {
+    confirmDialog?.resolve(ok);
+    useAppStore.setState({ confirmDialog: null });
+  };
+  return (
+    <ConfirmDialog
+      open={!!confirmDialog}
+      title={confirmDialog?.title ?? ""}
+      message={confirmDialog?.message ?? ""}
+      confirmLabel={confirmDialog?.confirmLabel}
+      danger={confirmDialog?.danger}
+      onConfirm={() => resolveAndClose(true)}
+      onCancel={() => resolveAndClose(false)}
+    />
+  );
+}
+
 function ExternalConflictModal() {
   const conflict = useAppStore((s) => s.externalConflict);
   const reload = useAppStore((s) => s.reloadExternalDocument);
@@ -158,6 +179,7 @@ export default function App() {
   const vaultPath = useAppStore((s) => s.vaultPath);
   const error = useAppStore((s) => s.error);
   const clearError = useAppStore((s) => s.clearError);
+  const pushToast = useAppStore((s) => s.pushToast);
   const bootstrap = useAppStore((s) => s.bootstrap);
   const sidebarWidth = useAppStore((s) => s.sidebarWidth);
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed);
@@ -172,6 +194,9 @@ export default function App() {
   const importOpen = useAppStore((s) => s.importOpen);
   const createDialog = useAppStore((s) => s.createDialog);
   const shortcutsOpen = useAppStore((s) => s.shortcutsOpen);
+  const presentationMode = useAppStore((s) => s.presentationMode);
+  const exitPresentationMode = useAppStore((s) => s.exitPresentationMode);
+  const togglePresentationMode = useAppStore((s) => s.togglePresentationMode);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const resizing = useRef(false);
   const closeMobileNav = () => setMobileNavOpen(false);
@@ -180,6 +205,19 @@ export default function App() {
   useEffect(() => {
     void bootstrap();
   }, [bootstrap]);
+
+  useEffect(() => {
+    if (!error) return;
+    pushToast(error, "error");
+    clearError();
+  }, [error, pushToast, clearError]);
+
+  useEffect(() => {
+    if (!presentationMode) return;
+    if (view !== "map" && view !== "note") {
+      void exitPresentationMode();
+    }
+  }, [view, presentationMode, exitPresentationMode]);
 
   useEffect(() => {
     if (view !== "map" && (linkingFromId || pendingLink)) {
@@ -265,6 +303,27 @@ export default function App() {
     };
 
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === "F5") {
+        e.preventDefault();
+        e.stopPropagation();
+        void togglePresentationMode();
+        return;
+      }
+      if (
+        e.key === "Escape" &&
+        useAppStore.getState().presentationMode &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        // Native save/open dialogs steal focus; Esc must not also toggle fullscreen.
+        document.hasFocus()
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        void exitPresentationMode();
+        return;
+      }
+
       const mod = e.ctrlKey || e.metaKey;
       if (!mod) return;
 
@@ -273,8 +332,9 @@ export default function App() {
 
       const action = resolveKeyAction(e);
       if (action === "toggle-node-panel") {
-        const { view, toggleNodePanel } = useAppStore.getState();
-        if (view !== "map") return;
+        const { view, toggleNodePanel, presentationMode: presenting } =
+          useAppStore.getState();
+        if (view !== "map" || presenting) return;
         e.preventDefault();
         e.stopPropagation();
         toggleNodePanel();
@@ -287,7 +347,9 @@ export default function App() {
         (key === "z" && e.shiftKey) || key === "y" || e.code === "KeyY";
       if (!isUndo && !isRedo) return;
 
-      const { activeMap, view, undo, redo } = useAppStore.getState();
+      const { activeMap, view, undo, redo, presentationMode: presenting } =
+        useAppStore.getState();
+      if (presenting) return;
       if (!activeMap || (view !== "map" && view !== "history")) return;
 
       e.preventDefault();
@@ -297,24 +359,36 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, []);
+  }, [exitPresentationMode, togglePresentationMode]);
 
   if (!ready) {
     return (
-      <div className="onboarding">
-        <p className="hint">Loading…</p>
-      </div>
+      <>
+        <div className="onboarding">
+          <p className="hint">Loading…</p>
+        </div>
+        <ToastStack />
+        <ConfirmDialogHost />
+      </>
     );
   }
 
   if (!vaultPath) {
-    return <Onboarding />;
+    return (
+      <>
+        <Onboarding />
+        <ToastStack />
+        <ConfirmDialogHost />
+      </>
+    );
   }
 
   const shellWidth = sidebarCollapsed ? 52 : sidebarWidth;
 
   return (
-    <div className="app-frame">
+    <div
+      className={`app-frame${presentationMode ? " presentation-mode" : ""}`}
+    >
       <MenuBar />
       <button
         type="button"
@@ -380,6 +454,16 @@ export default function App() {
         )}
         <MainView />
       </div>
+      {presentationMode && (
+        <button
+          type="button"
+          className="presentation-exit"
+          onClick={() => void exitPresentationMode()}
+          title="Exit presentation mode"
+        >
+          Exit · Esc
+        </button>
+      )}
       <Suspense fallback={null}>
         {importOpen && <ImportWizard />}
         {createDialog && <CreateDialog />}
@@ -388,30 +472,8 @@ export default function App() {
       <SearchPalette />
       <AboutModal />
       <ExternalConflictModal />
-      {error && (
-        <button
-          type="button"
-          onClick={clearError}
-          style={{
-            position: "fixed",
-            bottom: 12,
-            right: 12,
-            background: "var(--danger)",
-            color: "white",
-            padding: "0.55rem 0.8rem",
-            borderRadius: 8,
-            maxWidth: 360,
-            zIndex: 60,
-            border: "none",
-            cursor: "pointer",
-            textAlign: "left",
-            font: "inherit",
-          }}
-          title="Dismiss"
-        >
-          {error}
-        </button>
-      )}
+      <ToastStack />
+      <ConfirmDialogHost />
     </div>
   );
 }

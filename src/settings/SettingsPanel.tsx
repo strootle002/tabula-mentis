@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { THEMES } from "./themes";
 import { useAppStore } from "../store/appStore";
-import { ALL_LAYOUTS } from "../mindmap/layoutCatalog";
+import { SELECTABLE_LAYOUTS } from "../mindmap/layoutCatalog";
 import {
   DEFAULT_KEYBINDINGS,
   KEY_ACTION_LABELS,
@@ -19,6 +19,7 @@ const EDITABLE_ACTIONS: KeyAction[] = [
   "delete",
   "toggle-collapse",
   "toggle-node-panel",
+  "focus-node",
   "undo",
   "redo",
   "nav-left",
@@ -36,11 +37,20 @@ export function SettingsPanel() {
   const keybindings = useAppStore((s) => s.keybindings);
   const updateKeybindings = useAppStore((s) => s.updateKeybindings);
   const resetKeybindings = useAppStore((s) => s.resetKeybindings);
+  const maps = useAppStore((s) => s.maps);
+  const notes = useAppStore((s) => s.notes);
+  const noteIndex = useAppStore((s) => s.noteIndex);
+  const mapNodeTags = useAppStore((s) => s.mapNodeTags);
+  const getAllTags = useAppStore((s) => s.getAllTags);
   const [capturing, setCapturing] = useState<KeyAction | null>(null);
 
   const defaults = vaultSettings.defaultNodeStyle;
   const layoutStyle = vaultSettings.defaultLayoutStyle ?? "right";
   const effective = effectiveKeybindings(keybindings);
+  const tagCount = useMemo(
+    () => getAllTags().length,
+    [getAllTags, noteIndex, mapNodeTags],
+  );
 
   const onCapture = (action: KeyAction, e: React.KeyboardEvent) => {
     e.preventDefault();
@@ -71,9 +81,26 @@ export function SettingsPanel() {
         </p>
       )}
 
+      {vaultPath && (
+        <div className="settings-stats">
+          <div className="settings-stat">
+            <strong>{maps.length}</strong>
+            <span>{maps.length === 1 ? "map" : "maps"}</span>
+          </div>
+          <div className="settings-stat">
+            <strong>{notes.length}</strong>
+            <span>{notes.length === 1 ? "note" : "notes"}</span>
+          </div>
+          <div className="settings-stat">
+            <strong>{tagCount}</strong>
+            <span>{tagCount === 1 ? "tag" : "tags"}</span>
+          </div>
+        </div>
+      )}
+
       <h3 style={{ fontFamily: "var(--font-display)" }}>Default mindmap layout</h3>
       <div className="settings-grid">
-        {ALL_LAYOUTS.map((l) => (
+        {SELECTABLE_LAYOUTS.map((l) => (
           <button
             key={l.id}
             type="button"
@@ -195,7 +222,74 @@ export function SettingsPanel() {
             }
           />
         </div>
+        <div className="field">
+          <label>Scale</label>
+          <input
+            type="number"
+            min={0.5}
+            max={2}
+            step={0.05}
+            value={defaults.scale ?? 1}
+            onChange={(e) =>
+              void updateVaultSettings({
+                defaultNodeStyle: {
+                  ...defaults,
+                  scale: Number(e.target.value),
+                },
+              })
+            }
+          />
+        </div>
       </div>
+
+      <h3 style={{ fontFamily: "var(--font-display)", marginTop: "1.5rem" }}>
+        Canvas &amp; autosave
+      </h3>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
+          gap: "0.75rem",
+          maxWidth: 640,
+        }}
+      >
+        <div className="field">
+          <label>Canvas background</label>
+          <input
+            type="color"
+            value={vaultSettings.canvasBackground ?? "#ebe7df"}
+            onChange={(e) =>
+              void updateVaultSettings({ canvasBackground: e.target.value })
+            }
+          />
+        </div>
+        <div className="field">
+          <label>Autosave delay (ms)</label>
+          <input
+            type="number"
+            min={100}
+            max={5000}
+            step={100}
+            value={vaultSettings.autosaveMs ?? 500}
+            onChange={(e) =>
+              void updateVaultSettings({
+                autosaveMs: Number(e.target.value),
+              })
+            }
+          />
+        </div>
+      </div>
+      {vaultSettings.canvasBackground && (
+        <p style={{ marginTop: "0.5rem" }}>
+          <button
+            type="button"
+            className="ghost-btn"
+            onClick={() => void updateVaultSettings({ canvasBackground: undefined })}
+          >
+            Use theme default canvas color
+          </button>
+        </p>
+      )}
 
       <h3 style={{ fontFamily: "var(--font-display)", marginTop: "1.5rem" }}>
         Keyboard shortcuts

@@ -107,25 +107,40 @@ export function collectDocumentNodeNoteRefs(map: MindMapDocument) {
 
 export function scheduleMapSave(get: GetState, set: SetState) {
   if (get().externalConflict?.kind === "map") return;
-  saveCoordinator.schedule("map", () => get().saveActiveMap(), (e) => {
-    const message = e instanceof Error ? e.message : String(e);
-    set({ error: `Could not save map: ${message}` });
-  });
+  saveCoordinator.schedule(
+    "map",
+    () => get().saveActiveMap(),
+    (e) => {
+      const message = e instanceof Error ? e.message : String(e);
+      set({ error: `Could not save map: ${message}` });
+    },
+    get().vaultSettings.autosaveMs ?? 500,
+  );
 }
 
 export function scheduleNoteSave(get: GetState, set: SetState) {
   if (get().externalConflict?.kind === "note") return;
-  saveCoordinator.schedule("note", () => get().saveActiveNote(), (e) => {
-    const message = e instanceof Error ? e.message : String(e);
-    set({ error: `Could not save note: ${message}` });
-  });
+  saveCoordinator.schedule(
+    "note",
+    () => get().saveActiveNote(),
+    (e) => {
+      const message = e instanceof Error ? e.message : String(e);
+      set({ error: `Could not save note: ${message}` });
+    },
+    get().vaultSettings.autosaveMs ?? 500,
+  );
 }
 
 export function scheduleTagNoteSave(get: GetState, set: SetState) {
-  saveCoordinator.schedule("tagNote", () => get().saveActiveTagNote(), (e) => {
-    const message = e instanceof Error ? e.message : String(e);
-    set({ error: `Could not save tag note: ${message}` });
-  });
+  saveCoordinator.schedule(
+    "tagNote",
+    () => get().saveActiveTagNote(),
+    (e) => {
+      const message = e instanceof Error ? e.message : String(e);
+      set({ error: `Could not save tag note: ${message}` });
+    },
+    get().vaultSettings.autosaveMs ?? 500,
+  );
 }
 
 /** Flush debounced saves so switching docs never drops unsaved edits. */
@@ -160,6 +175,17 @@ export async function flushPendingSaves(get: GetState) {
   if (get().dirtyMap || get().dirtyNote || get().dirtyTagNote) {
     throw new Error("Could not flush all pending saves before continuing.");
   }
+}
+
+let lastSavedToastAt = 0;
+const SAVED_TOAST_DEBOUNCE_MS = 4000;
+
+/** Show a subtle "Saved" toast, but never more than once per debounce window. */
+export function maybeToastSaved(get: GetState): void {
+  const now = Date.now();
+  if (now - lastSavedToastAt < SAVED_TOAST_DEBOUNCE_MS) return;
+  lastSavedToastAt = now;
+  get().pushToast("Saved", "success");
 }
 
 export function cancelScheduledSave(kind: SaveKind): void {

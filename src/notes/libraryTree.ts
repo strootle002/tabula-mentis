@@ -1,6 +1,6 @@
-import type { LibraryFolderSort } from "../mindmap/types";
+import type { LibraryFolderSort, RecentPathEntry } from "../mindmap/types";
 
-export type { LibraryFolderSort };
+export type { LibraryFolderSort, RecentPathEntry };
 
 export type FolderStats = {
   mtime: number;
@@ -237,4 +237,76 @@ export function reorderSiblingFolders(
   }
   if (!emitted) result.push(...nextSiblings);
   return result;
+}
+
+function entryMatches(entry: LibraryEntry, query: string): boolean {
+  return entry.name.toLowerCase().includes(query);
+}
+
+function bundleMatches(bundle: MapNoteBundle, query: string): boolean {
+  return (
+    entryMatches(bundle.map, query) ||
+    bundle.notes.some((note) => entryMatches(note, query))
+  );
+}
+
+export function filterLibraryEntries(
+  entries: LibraryEntry[],
+  query: string,
+): LibraryEntry[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return entries;
+  return entries.filter((entry) => entryMatches(entry, q));
+}
+
+export function filterLibraryBundles(
+  bundles: MapNoteBundle[],
+  query: string,
+): MapNoteBundle[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return bundles;
+  return bundles.filter((bundle) => bundleMatches(bundle, q));
+}
+
+/**
+ * Keep a folder if its own name matches, or any descendant item/bundle/child
+ * folder matches. A folder whose own name matches keeps its full subtree.
+ */
+function filterFolderNode(node: FolderNode, query: string): FolderNode | null {
+  if (node.name.toLowerCase().includes(query)) return node;
+
+  const children = node.children
+    .map((child) => filterFolderNode(child, query))
+    .filter((child): child is FolderNode => child !== null);
+  const items = node.items.filter((entry) => entryMatches(entry, query));
+  const bundles = node.bundles.filter((bundle) => bundleMatches(bundle, query));
+
+  if (children.length === 0 && items.length === 0 && bundles.length === 0) {
+    return null;
+  }
+  return { ...node, children, items, bundles };
+}
+
+export function filterFolderTree(
+  nodes: FolderNode[],
+  query: string,
+): FolderNode[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return nodes;
+  return nodes
+    .map((node) => filterFolderNode(node, q))
+    .filter((node): node is FolderNode => node !== null);
+}
+
+/** Max recent maps/notes kept in vault settings and shown in the library pane. */
+export const RECENT_PATHS_MAX = 5;
+
+/** Push a recently opened map/note to the front, deduped, capped at `max`. */
+export function withRecentPath(
+  recentPaths: RecentPathEntry[] | undefined,
+  entry: RecentPathEntry,
+  max = RECENT_PATHS_MAX,
+): RecentPathEntry[] {
+  const rest = (recentPaths ?? []).filter((r) => r.path !== entry.path);
+  return [entry, ...rest].slice(0, max);
 }

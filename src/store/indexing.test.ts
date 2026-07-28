@@ -5,6 +5,7 @@ import {
   flattenMapTags,
   removeMapTagIndex,
   removeNoteIndex,
+  rootNodeTag,
   upsertMapTagIndex,
   upsertNoteIndex,
 } from "./indexing";
@@ -66,10 +67,29 @@ describe("incremental vault indexes", () => {
     let index = upsertMapTagIndex({}, "/maps/a.map.json", map(node("a", "#old")));
     index = upsertMapTagIndex(index, "/maps/b.map.json", map(node("b", "#shared")));
     index = upsertMapTagIndex(index, "/maps/a.map.json", map(node("a", "#new #shared")));
-    expect(flattenMapTags(index)).toEqual(["new", "shared"]);
+    expect(flattenMapTags(index)).toEqual(["a", "b", "new", "shared"]);
     expect(flattenMapTags(removeMapTagIndex(index, "/maps/b.map.json"))).toEqual([
+      "a",
       "new",
       "shared",
     ]);
+  });
+
+  it("derives a slugified root tag from the root node text", () => {
+    const root = node("root");
+    root.text = "My Research Plan";
+    expect(rootNodeTag(map(root))).toBe("my-research-plan");
+    expect(extractMapNodeTags(map(root))).toEqual(["my-research-plan"]);
+  });
+
+  it("falls back to the map title when the root text is blank", () => {
+    const root = node("root");
+    root.text = "   ";
+    expect(rootNodeTag(map(root))).toBe("map");
+  });
+
+  it("dedupes the root tag against literal tags in node notes", () => {
+    const doc = map(node("root", "#root and #other"));
+    expect(extractMapNodeTags(doc)).toEqual(["other", "root"]);
   });
 });

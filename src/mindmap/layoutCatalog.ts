@@ -7,7 +7,7 @@ export interface LayoutOption {
   hint?: string;
 }
 
-/** Hierarchical mindmap layouts (single root tree). */
+/** Hierarchical mindmap layouts offered in Style / settings / create. */
 export const TREE_LAYOUTS: LayoutOption[] = [
   { id: "right", label: "Rightward tree", group: "tree" },
   { id: "left", label: "Leftward tree", group: "tree" },
@@ -15,7 +15,10 @@ export const TREE_LAYOUTS: LayoutOption[] = [
   { id: "radial", label: "Radial", group: "tree" },
 ];
 
-/** Diagram-oriented layouts (often with free links / freer structure). */
+/**
+ * Legacy diagram layouts. Still renderable for existing maps, but not offered
+ * as choices in the UI (flowchart / concept map were retired from pickers).
+ */
 export const DIAGRAM_LAYOUTS: LayoutOption[] = [
   {
     id: "flowchart",
@@ -31,6 +34,10 @@ export const DIAGRAM_LAYOUTS: LayoutOption[] = [
   },
 ];
 
+/** Layouts the user can pick for new maps and Style menu changes. */
+export const SELECTABLE_LAYOUTS: LayoutOption[] = [...TREE_LAYOUTS];
+
+/** All known layouts, including legacy ones kept for open/render. */
 export const ALL_LAYOUTS: LayoutOption[] = [...TREE_LAYOUTS, ...DIAGRAM_LAYOUTS];
 
 export const FLOW_DIRS: { id: FlowDir; label: string }[] = [

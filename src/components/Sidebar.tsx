@@ -13,11 +13,17 @@ import {
   isContinuousJournal,
   isJournalFolder,
   journalDateKey,
+  listJournalDates,
 } from "../notes/journals";
 import {
   buildFolderTree,
+  filterFolderTree,
+  filterLibraryBundles,
+  filterLibraryEntries,
+  folderSegmentName,
   isFolderUnder,
   parentFolderPath,
+  RECENT_PATHS_MAX,
   sortFolderNodes,
   type FolderNode,
   type LibraryEntry,
@@ -27,14 +33,23 @@ import { TagsBrowser } from "../notes/TagsBrowser";
 import { ContextMenu, useContextMenu } from "./ContextMenu";
 import { NavHidePanelButton } from "./NavHidePanelButton";
 import {
+  ChevronIcon,
   CollapseIcon,
+  FavoritesIcon,
   FolderIcon,
   JournalIcon,
   LibraryIcon,
   MapIcon,
+  NewFolderIcon,
+  NewIcon,
   NoteIcon,
+  PlusIcon,
+  SearchIcon,
+  SettingsIcon,
+  SortIcon,
   TagsIcon,
 } from "./navIcons";
+import { OPEN_SEARCH_EVENT } from "../search/SearchPalette";
 
 const DND_MIME = "application/x-mindmap-entry";
 const FOLDER_DND_MIME = "application/x-mindmap-folder";
@@ -107,10 +122,44 @@ function NavRail({
   onSelectMode: (mode: NavMode) => void;
   onToggleCollapse: () => void;
 }) {
+  const openCreateDialog = useAppStore((s) => s.openCreateDialog);
+  const openSettings = useAppStore((s) => s.openSettings);
+
   const modes: { id: NavMode; label: string; Icon: typeof JournalIcon }[] = [
     { id: "journal", label: "Journal", Icon: JournalIcon },
+    { id: "favorites", label: "Favorites", Icon: FavoritesIcon },
     { id: "library", label: "Library", Icon: LibraryIcon },
     { id: "tags", label: "Tags", Icon: TagsIcon },
+  ];
+
+  const actions: {
+    id: string;
+    label: string;
+    title: string;
+    Icon: typeof JournalIcon;
+    onClick: () => void;
+  }[] = [
+    {
+      id: "new",
+      label: "New",
+      title: "New map or note",
+      Icon: NewIcon,
+      onClick: () => openCreateDialog("choose"),
+    },
+    {
+      id: "search",
+      label: "Search",
+      title: "Search vault (Ctrl+K)",
+      Icon: SearchIcon,
+      onClick: () => window.dispatchEvent(new Event(OPEN_SEARCH_EVENT)),
+    },
+    {
+      id: "settings",
+      label: "Settings",
+      title: "Settings",
+      Icon: SettingsIcon,
+      onClick: () => openSettings(),
+    },
   ];
 
   return (
@@ -132,28 +181,48 @@ function NavRail({
           </button>
         ))}
       </div>
-      {!forceExpanded && (
-        <button
-          type="button"
-          className={`nav-rail-btn nav-collapse ${collapsed ? "is-collapsed" : ""}`}
-          title={collapsed ? "Show navigation panel" : "Hide navigation panel"}
-          aria-label={collapsed ? "Show navigation panel" : "Hide navigation panel"}
-          aria-expanded={!collapsed}
-          onClick={onToggleCollapse}
-        >
-          <CollapseIcon />
-          <span className="nav-rail-label">{collapsed ? "Show" : "Hide"}</span>
-        </button>
-      )}
+      <div className="nav-rail-actions" aria-label="Quick actions">
+        {actions.map(({ id, label, title, Icon, onClick }) => (
+          <button
+            key={id}
+            type="button"
+            className={`nav-rail-btn nav-action nav-action-${id}`}
+            title={title}
+            aria-label={title}
+            onClick={onClick}
+          >
+            <Icon />
+            <span className="nav-rail-label">{label}</span>
+          </button>
+        ))}
+        {!forceExpanded && (
+          <button
+            type="button"
+            className={`nav-rail-btn nav-collapse ${collapsed ? "is-collapsed" : ""}`}
+            title={collapsed ? "Show navigation panel" : "Hide navigation panel"}
+            aria-label={
+              collapsed ? "Show navigation panel" : "Hide navigation panel"
+            }
+            aria-expanded={!collapsed}
+            onClick={onToggleCollapse}
+          >
+            <CollapseIcon />
+            <span className="nav-rail-label">{collapsed ? "Show" : "Hide"}</span>
+          </button>
+        )}
+      </div>
     </div>
   );
 }
 
 function JournalPane({ onNavigate }: { onNavigate?: () => void }) {
   const notes = useAppStore((s) => s.notes);
+  const noteIndex = useAppStore((s) => s.noteIndex);
   const view = useAppStore((s) => s.view);
   const activeNotePath = useAppStore((s) => s.activeNotePath);
   const openTodayJournal = useAppStore((s) => s.openTodayJournal);
+  const openNote = useAppStore((s) => s.openNote);
+  const setJournalFocusDate = useAppStore((s) => s.setJournalFocusDate);
 
   const journalNote = useMemo(
     () => notes.find((n) => isContinuousJournal(n.name, n.folder)) ?? null,
@@ -164,6 +233,21 @@ function JournalPane({ onNavigate }: { onNavigate?: () => void }) {
     view === "note" &&
     !!journalNote &&
     activeNotePath === journalNote.path;
+
+  const journalDates = useMemo(() => {
+    if (!journalNote) return [];
+    const entry = noteIndex.find((n) => n.path === journalNote.path);
+    return entry ? listJournalDates(entry.content) : [];
+  }, [journalNote, noteIndex]);
+
+  const jumpToDate = (dateKey: string) => {
+    if (!journalNote) return;
+    const openThen = activeNotePath === journalNote.path
+      ? Promise.resolve()
+      : openNote(journalNote.path);
+    void openThen.then(() => setJournalFocusDate(dateKey));
+    onNavigate?.();
+  };
 
   return (
     <div className="nav-pane journal-pane">
@@ -191,7 +275,161 @@ function JournalPane({ onNavigate }: { onNavigate?: () => void }) {
             </span>
           </button>
         </div>
+        {journalDates.length > 0 && (
+          <div className="library-recent">
+            <div className="library-recent-header hint">Jump to day</div>
+            <div className="sidebar-list">
+              {journalDates.map((d) => (
+                <button
+                  key={d.dateKey}
+                  type="button"
+                  className="sidebar-item entry-journal-date"
+                  onClick={() => jumpToDate(d.dateKey)}
+                  title={`Scroll to ${d.heading}`}
+                >
+                  <span className="entry-name">{d.heading}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+function FavoritesPane({ onNavigate }: { onNavigate?: () => void }) {
+  const maps = useAppStore((s) => s.maps);
+  const notes = useAppStore((s) => s.notes);
+  const view = useAppStore((s) => s.view);
+  const activeMapPath = useAppStore((s) => s.activeMapPath);
+  const activeNotePath = useAppStore((s) => s.activeNotePath);
+  const vaultSettings = useAppStore((s) => s.vaultSettings);
+  const openMap = useAppStore((s) => s.openMap);
+  const openNote = useAppStore((s) => s.openNote);
+  const toggleFavoritePath = useAppStore((s) => s.toggleFavoritePath);
+  const renameItem = useAppStore((s) => s.renameItem);
+  const archiveItem = useAppStore((s) => s.archiveItem);
+  const deleteItem = useAppStore((s) => s.deleteItem);
+  const requestConfirm = useAppStore((s) => s.requestConfirm);
+  const { menu, openMenu, closeMenu } = useContextMenu();
+
+  const favoritePaths = vaultSettings.favoritePaths ?? [];
+  const favoriteEntries = useMemo(() => {
+    if (favoritePaths.length === 0) return [];
+    const byPath = new Map<string, LibraryEntry>();
+    for (const m of maps) byPath.set(m.path, { ...m, kind: "map" });
+    for (const n of notes) byPath.set(n.path, { ...n, kind: "note" });
+    return favoritePaths
+      .map((p) => byPath.get(p))
+      .filter((e): e is LibraryEntry => !!e);
+  }, [favoritePaths, maps, notes]);
+
+  const openEntryMenu = (
+    e: React.MouseEvent,
+    kind: "map" | "note",
+    path: string,
+    name: string,
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    openMenu(e.clientX, e.clientY, [
+      {
+        label: "Open",
+        onClick: () => {
+          if (kind === "map") void openMap(path);
+          else void openNote(path);
+        },
+      },
+      {
+        label: "Remove from favorites",
+        onClick: () => void toggleFavoritePath(path),
+      },
+      {
+        label: "Rename…",
+        onClick: () => {
+          const next = window.prompt("New name", name)?.trim();
+          if (next && next !== name) void renameItem(kind, path, next);
+        },
+      },
+      {
+        label: "Archive",
+        onClick: () => {
+          void requestConfirm({
+            title: "Archive item",
+            message: `Archive “${name}”?`,
+          }).then((ok) => {
+            if (ok) void archiveItem(kind, path);
+          });
+        },
+      },
+      {
+        label: "Delete",
+        danger: true,
+        onClick: () => {
+          void requestConfirm({
+            title: "Delete item",
+            message: `Permanently delete “${name}”?`,
+            confirmLabel: "Delete",
+            danger: true,
+          }).then((ok) => {
+            if (ok) void deleteItem(kind, path);
+          });
+        },
+      },
+    ]);
+  };
+
+  return (
+    <div className="nav-pane favorites-pane">
+      <div className="nav-pane-header">
+        <span>Favorites</span>
+        <NavHidePanelButton />
+      </div>
+      <div className="nav-pane-body">
+        {favoriteEntries.length === 0 ? (
+          <p className="sidebar-empty hint">
+            Pin maps or notes from the library (right-click → Add to favorites).
+          </p>
+        ) : (
+          <div className="sidebar-list">
+            {favoriteEntries.map((entry) => {
+              const active =
+                entry.kind === "map"
+                  ? activeMapPath === entry.path && view === "map"
+                  : activeNotePath === entry.path && view === "note";
+              return (
+                <button
+                  key={`fav:${entry.path}`}
+                  type="button"
+                  className={`sidebar-item entry-${entry.kind} ${active ? "active" : ""}`}
+                  onClick={() => {
+                    if (entry.kind === "map") void openMap(entry.path);
+                    else void openNote(entry.path);
+                    onNavigate?.();
+                  }}
+                  onContextMenu={(e) =>
+                    openEntryMenu(e, entry.kind, entry.path, entry.name)
+                  }
+                >
+                  <span className={`entry-icon ${entry.kind}`} aria-hidden>
+                    {entry.kind === "map" ? <MapIcon /> : <NoteIcon />}
+                  </span>
+                  <span className="entry-name">{entry.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={menu.items}
+          onClose={closeMenu}
+        />
+      )}
     </div>
   );
 }
@@ -216,16 +454,21 @@ function LibraryPane({ onNavigate }: { onNavigate?: () => void }) {
   const deleteItem = useAppStore((s) => s.deleteItem);
   const archiveFolder = useAppStore((s) => s.archiveFolder);
   const deleteFolder = useAppStore((s) => s.deleteFolder);
+  const renameItem = useAppStore((s) => s.renameItem);
+  const renameFolder = useAppStore((s) => s.renameFolder);
   const moveItem = useAppStore((s) => s.moveItem);
+  const toggleFavoritePath = useAppStore((s) => s.toggleFavoritePath);
   const expandedFolders = useAppStore((s) => s.expandedFolders);
   const toggleFolder = useAppStore((s) => s.toggleFolder);
   const setNavMode = useAppStore((s) => s.setNavMode);
+  const requestConfirm = useAppStore((s) => s.requestConfirm);
   const { menu, openMenu, closeMenu } = useContextMenu();
 
   const [dragging, setDragging] = useState<DragPayload | null>(null);
   const [draggingFolder, setDraggingFolder] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const [libraryQuery, setLibraryQuery] = useState("");
   /** Survives HTML5 DnD quirks where getData() is empty outside drop in some browsers. */
   const dragRef = useRef<
     | { type: "entry"; payload: DragPayload }
@@ -353,6 +596,28 @@ function LibraryPane({ onNavigate }: { onNavigate?: () => void }) {
     folderOrder,
   ]);
 
+  const filteredLibrary = useMemo(() => {
+    if (!libraryQuery.trim()) return library;
+    return {
+      rootItems: filterLibraryEntries(library.rootItems, libraryQuery),
+      rootBundles: filterLibraryBundles(library.rootBundles, libraryQuery),
+      folderTree: filterFolderTree(library.folderTree, libraryQuery),
+    };
+  }, [library, libraryQuery]);
+
+  const recentEntries = useMemo(() => {
+    if (libraryQuery.trim()) return [];
+    const recents = vaultSettings.recentPaths ?? [];
+    if (recents.length === 0) return [];
+    const known = new Set([
+      ...maps.map((m) => m.path),
+      ...notes.map((n) => n.path),
+    ]);
+    return recents.filter((r) => known.has(r.path)).slice(0, RECENT_PATHS_MAX);
+  }, [vaultSettings.recentPaths, maps, notes, libraryQuery]);
+
+  const favoritePaths = vaultSettings.favoritePaths ?? [];
+
   const openEntryMenu = (
     e: React.MouseEvent,
     kind: "map" | "note",
@@ -361,6 +626,7 @@ function LibraryPane({ onNavigate }: { onNavigate?: () => void }) {
   ) => {
     e.preventDefault();
     e.stopPropagation();
+    const isFavorite = favoritePaths.includes(path);
     openMenu(e.clientX, e.clientY, [
       {
         label: "Open",
@@ -371,20 +637,39 @@ function LibraryPane({ onNavigate }: { onNavigate?: () => void }) {
         },
       },
       {
+        label: isFavorite ? "Remove from favorites" : "Add to favorites",
+        onClick: () => void toggleFavoritePath(path),
+      },
+      {
+        label: "Rename…",
+        onClick: () => {
+          const next = window.prompt("New name", name)?.trim();
+          if (next && next !== name) void renameItem(kind, path, next);
+        },
+      },
+      {
         label: "Archive",
         onClick: () => {
-          if (window.confirm(`Archive “${name}”?`)) {
-            void archiveItem(kind, path);
-          }
+          void requestConfirm({
+            title: "Archive item",
+            message: `Archive “${name}”?`,
+          }).then((ok) => {
+            if (ok) void archiveItem(kind, path);
+          });
         },
       },
       {
         label: "Delete",
         danger: true,
         onClick: () => {
-          if (window.confirm(`Permanently delete “${name}”?`)) {
-            void deleteItem(kind, path);
-          }
+          void requestConfirm({
+            title: "Delete item",
+            message: `Permanently delete “${name}”?`,
+            confirmLabel: "Delete",
+            danger: true,
+          }).then((ok) => {
+            if (ok) void deleteItem(kind, path);
+          });
         },
       },
     ]);
@@ -393,30 +678,38 @@ function LibraryPane({ onNavigate }: { onNavigate?: () => void }) {
   const openFolderMenu = (e: React.MouseEvent, folder: string) => {
     e.preventDefault();
     e.stopPropagation();
+    const folderName = folderSegmentName(folder);
     openMenu(e.clientX, e.clientY, [
+      {
+        label: "Rename…",
+        onClick: () => {
+          const next = window.prompt("New folder name", folderName)?.trim();
+          if (next && next !== folderName) void renameFolder(folder, next);
+        },
+      },
       {
         label: "Archive",
         onClick: () => {
-          if (
-            window.confirm(
-              `Archive folder “${folder}” and everything inside it?`,
-            )
-          ) {
-            void archiveFolder(folder);
-          }
+          void requestConfirm({
+            title: "Archive folder",
+            message: `Archive folder “${folder}” and everything inside it?`,
+          }).then((ok) => {
+            if (ok) void archiveFolder(folder);
+          });
         },
       },
       {
         label: "Delete",
         danger: true,
         onClick: () => {
-          if (
-            window.confirm(
-              `Permanently delete folder “${folder}” and everything inside it?`,
-            )
-          ) {
-            void deleteFolder(folder);
-          }
+          void requestConfirm({
+            title: "Delete folder",
+            message: `Permanently delete folder “${folder}” and everything inside it?`,
+            confirmLabel: "Delete",
+            danger: true,
+          }).then((ok) => {
+            if (ok) void deleteFolder(folder);
+          });
         },
       },
     ]);
@@ -615,13 +908,11 @@ function LibraryPane({ onNavigate }: { onNavigate?: () => void }) {
     void updateVaultSettings({ libraryFolderSort: mode });
   };
 
-  const renderEntry = (entry: LibraryEntry, depth = 0) => {
+  const renderEntry = (entry: LibraryEntry, _depth = 0) => {
     const active =
       entry.kind === "map"
         ? activeMapPath === entry.path && view === "map"
         : activeNotePath === entry.path && view === "note";
-    const nestClass =
-      depth >= 2 ? "nested nested-deep" : depth === 1 ? "nested" : "";
     const targetId = `entry-dest:${entry.path}`;
     const isRootDest = !entry.folder;
     return (
@@ -629,7 +920,7 @@ function LibraryPane({ onNavigate }: { onNavigate?: () => void }) {
         key={entry.path}
         type="button"
         draggable
-        className={`sidebar-item entry-${entry.kind} droppable ${nestClass} ${active ? "active" : ""} ${dragging?.path === entry.path ? "dragging-item" : ""} ${dropTarget === targetId ? "drop-target" : ""}`}
+        className={`sidebar-item entry-${entry.kind} droppable ${active ? "active" : ""} ${dragging?.path === entry.path ? "dragging-item" : ""} ${dropTarget === targetId ? "drop-target" : ""}`}
         onClick={() => {
           if (entry.kind === "map") void openMap(entry.path);
           else void openNote(entry.path);
@@ -665,17 +956,15 @@ function LibraryPane({ onNavigate }: { onNavigate?: () => void }) {
     );
   };
 
-  const renderMapBundle = (bundle: MapNoteBundle, depth = 0) => {
+  const renderMapBundle = (bundle: MapNoteBundle, _depth = 0) => {
     const open = isFolderOpen(expandedFolders, bundle.expandKey);
     const active = activeMapPath === bundle.map.path && view === "map";
-    const nestClass =
-      depth >= 2 ? "nested nested-deep" : depth === 1 ? "nested" : "";
     const targetId = `bundle-dest:${bundle.map.path}`;
     const destFolder = bundle.map.folder;
     return (
       <div key={bundle.expandKey} className="folder-block map-note-bundle">
         <div
-          className={`sidebar-item folder-item map-folder entry-map droppable ${nestClass} ${active ? "active" : ""} ${dragging?.path === bundle.map.path ? "dragging-item" : ""} ${dropTarget === targetId ? "drop-target" : ""}`}
+          className={`sidebar-item folder-item map-folder entry-map droppable ${active ? "active" : ""} ${dragging?.path === bundle.map.path ? "dragging-item" : ""} ${dropTarget === targetId ? "drop-target" : ""}`}
           draggable
           onDragStart={(e) => onDragStart(e, "map", bundle.map.path)}
           onDragEnd={onDragEnd}
@@ -693,14 +982,15 @@ function LibraryPane({ onNavigate }: { onNavigate?: () => void }) {
         >
           <button
             type="button"
-            className="folder-chevron"
+            className={`folder-chevron ${open ? "open" : ""}`}
             title={open ? "Collapse notes" : "Expand notes"}
+            aria-label={open ? "Collapse notes" : "Expand notes"}
             onClick={(e) => {
               e.stopPropagation();
               toggleFolder(bundle.expandKey);
             }}
           >
-            {open ? "▾" : "▸"}
+            <ChevronIcon />
           </button>
           <button
             type="button"
@@ -717,7 +1007,11 @@ function LibraryPane({ onNavigate }: { onNavigate?: () => void }) {
             <span className="entry-name">{bundle.map.name}</span>
           </button>
         </div>
-        {open && bundle.notes.map((note) => renderEntry(note, depth + 1))}
+        {open && (
+          <div className="bundle-children">
+            {bundle.notes.map((note) => renderEntry(note, _depth + 1))}
+          </div>
+        )}
       </div>
     );
   };
@@ -725,7 +1019,7 @@ function LibraryPane({ onNavigate }: { onNavigate?: () => void }) {
   const renderFolderInsert = (
     targetPath: string,
     place: "before" | "after",
-    depth: number,
+    _depth: number,
   ) => {
     const targetId = `${place}:${targetPath}`;
     const active = dropTarget === targetId;
@@ -733,7 +1027,6 @@ function LibraryPane({ onNavigate }: { onNavigate?: () => void }) {
       <div
         key={targetId}
         className={`folder-insert-zone ${active ? "active" : ""}`}
-        style={{ marginLeft: `${depth * 0.75}rem` }}
         onDragOver={(e) => allowFolderPlaceOver(e, targetPath, place)}
         onDragLeave={(e) => clearDropIfLeaving(e, targetId)}
         onDrop={(e) => acceptFolderPlace(e, targetPath, place)}
@@ -769,8 +1062,6 @@ function LibraryPane({ onNavigate }: { onNavigate?: () => void }) {
       node.items.length === 0 &&
       node.bundles.length === 0 &&
       node.children.length === 0;
-    const nestClass =
-      depth >= 2 ? "nested nested-deep" : depth === 1 ? "nested" : "";
     const folderDrag = activeFolderDrag();
     const nesting =
       !!folderDrag &&
@@ -781,7 +1072,7 @@ function LibraryPane({ onNavigate }: { onNavigate?: () => void }) {
     return (
       <div className="folder-block">
         <div
-          className={`sidebar-item folder-item entry-folder droppable ${nestClass} ${draggingFolder === node.path ? "dragging-item" : ""} ${nesting ? "folder-reorder-into" : ""} ${!folderDrag && dropTarget === itemTargetId ? "drop-target" : ""}`}
+          className={`sidebar-item folder-item entry-folder droppable ${draggingFolder === node.path ? "dragging-item" : ""} ${nesting ? "folder-reorder-into" : ""} ${!folderDrag && dropTarget === itemTargetId ? "drop-target" : ""}`}
           onContextMenu={(e) => openFolderMenu(e, node.path)}
           onDragOver={(e) => {
             if (allowFolderNestOver(e, node.path)) return;
@@ -803,26 +1094,17 @@ function LibraryPane({ onNavigate }: { onNavigate?: () => void }) {
         >
           <button
             type="button"
-            className="folder-chevron"
+            className={`folder-chevron ${open ? "open" : ""}`}
             title={open ? "Collapse folder" : "Expand folder"}
+            aria-label={open ? "Collapse folder" : "Expand folder"}
             onClick={(e) => {
               e.stopPropagation();
               if (suppressFolderClickRef.current) return;
               toggleFolder(node.path);
             }}
           >
-            {open ? "▾" : "▸"}
+            <ChevronIcon />
           </button>
-          <span
-            className="folder-drag-handle"
-            draggable
-            title="Drag to nest or reorder"
-            onDragStart={(e) => onFolderDragStart(e, node.path)}
-            onDragEnd={onDragEnd}
-            onClick={(e) => e.stopPropagation()}
-          >
-            ⋮⋮
-          </span>
           <button
             type="button"
             className="folder-label-btn"
@@ -836,23 +1118,28 @@ function LibraryPane({ onNavigate }: { onNavigate?: () => void }) {
             </span>
             <span className="entry-name">{node.name}</span>
           </button>
+          <span
+            className="folder-drag-handle"
+            draggable
+            title="Drag to nest or reorder"
+            onDragStart={(e) => onFolderDragStart(e, node.path)}
+            onDragEnd={onDragEnd}
+            onClick={(e) => e.stopPropagation()}
+          >
+            ⋮⋮
+          </span>
         </div>
         {open &&
           (empty ? (
-            <p
-              className="sidebar-empty hint"
-              style={{ marginLeft: `${0.55 + depth * 0.75}rem` }}
-            >
-              Empty folder
-            </p>
+            <p className="sidebar-empty hint">Empty folder</p>
           ) : (
-            <>
+            <div className="folder-children">
               {node.items.map((entry) => renderEntry(entry, depth + 1))}
               {node.bundles.map((bundle) =>
                 renderMapBundle(bundle, depth + 1),
               )}
               {renderFolderSiblings(node.children, depth + 1)}
-            </>
+            </div>
           ))}
       </div>
     );
@@ -875,11 +1162,12 @@ function LibraryPane({ onNavigate }: { onNavigate?: () => void }) {
               type="button"
               className="icon-btn small"
               title={`Sort folders: ${sortLabel}`}
+              aria-label={`Sort folders: ${sortLabel}`}
               aria-haspopup="menu"
               aria-expanded={sortMenuOpen}
               onClick={() => setSortMenuOpen((v) => !v)}
             >
-              ⇅
+              <SortIcon />
             </button>
             {sortMenuOpen && (
               <div className="library-sort-menu" role="menu">
@@ -902,22 +1190,65 @@ function LibraryPane({ onNavigate }: { onNavigate?: () => void }) {
             type="button"
             className="icon-btn small"
             title="New folder"
+            aria-label="New folder"
             onClick={() => openCreateDialog("folder")}
           >
-            ⌂
+            <NewFolderIcon />
           </button>
           <button
             type="button"
             className="icon-btn small"
             title="New map or note"
+            aria-label="New map or note"
             onClick={() => openCreateDialog("choose")}
           >
-            +
+            <PlusIcon />
           </button>
         </div>
       </div>
 
       <div className="nav-pane-body">
+        <input
+          className="nav-search-input"
+          value={libraryQuery}
+          placeholder="Search library…"
+          aria-label="Search library"
+          onChange={(e) => setLibraryQuery(e.target.value)}
+        />
+        {recentEntries.length > 0 && (
+          <div className="library-recent">
+            <div className="library-recent-header hint">Recent</div>
+            <div className="sidebar-list">
+              {recentEntries.map((entry) => {
+                const active =
+                  entry.kind === "map"
+                    ? activeMapPath === entry.path && view === "map"
+                    : activeNotePath === entry.path && view === "note";
+                return (
+                  <button
+                    key={`recent:${entry.path}`}
+                    type="button"
+                    className={`sidebar-item entry-${entry.kind} ${active ? "active" : ""}`}
+                    onClick={() => {
+                      if (entry.kind === "map") void openMap(entry.path);
+                      else void openNote(entry.path);
+                      setNavMode("library");
+                      onNavigate?.();
+                    }}
+                  >
+                    <span className={`entry-icon ${entry.kind}`} aria-hidden>
+                      {entry.kind === "map" ? <MapIcon /> : <NoteIcon />}
+                    </span>
+                    <span className="entry-name">{entry.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {/* Keep root-drop / hint always mounted. Conditionally inserting them
+            on dragstart remounts siblings under the drag source and cancels
+            the native drag in WebKit/Tauri. */}
         <div
           className={`library-root-drop droppable ${dropTarget === "library-root" ? "drop-target" : ""} ${showRootDrop ? "is-active" : ""}`}
           onDragOver={(e) =>
@@ -944,13 +1275,21 @@ function LibraryPane({ onNavigate }: { onNavigate?: () => void }) {
             : "Drop here to move to library root"}
         </div>
         <p className="library-sort-hint hint">
-          Drag ⋮⋮ onto a folder to nest it, onto the lines between folders to
+          Drag onto a folder to nest it, onto the lines between folders to
           place above/below, or onto the root drop zone to move out.
         </p>
-        <div className="sidebar-list">
-          {library.rootItems.map((entry) => renderEntry(entry))}
-          {library.rootBundles.map((bundle) => renderMapBundle(bundle))}
-          {renderFolderSiblings(library.folderTree, 0)}
+        <div
+          className={`sidebar-list ${folderDrag ? "dragging-folder" : ""} ${dragging ? "dragging-entry" : ""}`}
+        >
+          {libraryQuery.trim() &&
+            filteredLibrary.rootItems.length === 0 &&
+            filteredLibrary.rootBundles.length === 0 &&
+            filteredLibrary.folderTree.length === 0 && (
+              <p className="sidebar-empty hint">No matches.</p>
+            )}
+          {filteredLibrary.rootItems.map((entry) => renderEntry(entry))}
+          {filteredLibrary.rootBundles.map((bundle) => renderMapBundle(bundle))}
+          {renderFolderSiblings(filteredLibrary.folderTree, 0)}
         </div>
       </div>
 
@@ -1005,6 +1344,7 @@ export function Sidebar({
       {!collapsed && (
         <div className="nav-content">
           {navMode === "journal" && <JournalPane onNavigate={onNavigate} />}
+          {navMode === "favorites" && <FavoritesPane onNavigate={onNavigate} />}
           {navMode === "library" && <LibraryPane onNavigate={onNavigate} />}
           {navMode === "tags" && <TagsBrowser onNavigate={onNavigate} />}
         </div>

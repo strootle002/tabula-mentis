@@ -3,9 +3,83 @@ export function extractWikiLinks(content: string): string[] {
   const re = /\[\[([^\]]+)\]\]/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(content))) {
-    links.add(m[1].trim());
+    const raw = m[1].trim();
+    const pipe = raw.indexOf("|");
+    const target = (pipe < 0 ? raw : raw.slice(0, pipe)).trim();
+    if (target) links.add(target);
   }
   return [...links];
+}
+
+/** Resolve a wiki target to a note path (exact name, then case-insensitive). */
+export function resolveWikiTarget(
+  index: Pick<NoteIndexEntry, "name" | "path">[],
+  target: string,
+): NoteIndexEntry | undefined {
+  const t = target.trim();
+  if (!t) return undefined;
+  const exact = index.find((n) => n.name === t);
+  if (exact) return exact as NoteIndexEntry;
+  const lower = t.toLowerCase();
+  return index.find((n) => n.name.toLowerCase() === lower) as
+    | NoteIndexEntry
+    | undefined;
+}
+
+export interface NoteLinkHit {
+  name: string;
+  path: string;
+  folder: string;
+}
+
+/** Notes that link to `noteName` via [[wiki links]]. */
+export function backlinksForNote(
+  index: NoteIndexEntry[],
+  noteName: string,
+  notePath?: string | null,
+): NoteLinkHit[] {
+  const names = new Set(
+    [noteName, notePath?.split(/[/\\]/).pop()?.replace(/\.md$/i, "")]
+      .filter(Boolean)
+      .map((n) => n!.toLowerCase()),
+  );
+  return index
+    .filter((n) => {
+      if (notePath && n.path === notePath) return false;
+      return n.links.some((link) => {
+        const pipe = link.indexOf("|");
+        const target = (pipe < 0 ? link : link.slice(0, pipe)).trim();
+        return names.has(target.toLowerCase());
+      });
+    })
+    .map((n) => ({ name: n.name, path: n.path, folder: n.folder }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Outgoing wiki targets from a note, resolved when possible. */
+export function outgoingLinksForNote(
+  index: NoteIndexEntry[],
+  note: Pick<NoteIndexEntry, "links"> | null | undefined,
+): { target: string; resolved: NoteLinkHit | null }[] {
+  if (!note) return [];
+  const seen = new Set<string>();
+  const out: { target: string; resolved: NoteLinkHit | null }[] = [];
+  for (const link of note.links) {
+    const pipe = link.indexOf("|");
+    const target = (pipe < 0 ? link : link.slice(0, pipe)).trim();
+    if (!target) continue;
+    const key = target.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const hit = resolveWikiTarget(index, target);
+    out.push({
+      target,
+      resolved: hit
+        ? { name: hit.name, path: hit.path, folder: hit.folder }
+        : null,
+    });
+  }
+  return out.sort((a, b) => a.target.localeCompare(b.target));
 }
 
 /** Tags support slash hierarchy: #project/frontend */

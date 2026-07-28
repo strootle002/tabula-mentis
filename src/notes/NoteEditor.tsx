@@ -6,14 +6,19 @@ import { useEffect, useRef } from "react";
 import { useAppStore } from "../store/appStore";
 import { NoteToolbar } from "./NoteToolbar";
 import { VaultImage, imageEditorProps } from "./imageSupport";
-import { HashTag } from "./wikiAndTags";
-import { isContinuousJournal, isJournalNote } from "./journals";
+import { HashTag, WikiLink } from "./wikiAndTags";
+import { formatJournalHeading, isContinuousJournal, isJournalNote } from "./journals";
 import {
   markdownForEditor,
   splitMarkdownFrontmatter,
 } from "./editorMarkdown";
 import { handleNoteEditorLinkClick } from "./openNoteLink";
+import { resolveWikiTarget } from "./links";
 import { NoteAside, NoteAsideToggle } from "./NoteAside";
+import { isNodeNotesPath, isTagNotesPath } from "../vault/vaultFs";
+import { WikiLinkSuggest } from "./WikiLinkSuggest";
+import { QueryBlockView } from "./QueryBlockView";
+import { TaskItem, TaskList } from "@tiptap/extension-list";
 
 const noteStarterKit = StarterKit.configure({
   // TipTap's default openOnClick uses window.open(), which breaks in the
@@ -28,8 +33,14 @@ export function NoteEditor() {
   const vaultPath = useAppStore((s) => s.vaultPath);
   const setNoteContent = useAppStore((s) => s.setNoteContent);
   const notes = useAppStore((s) => s.notes);
+  const noteIndex = useAppStore((s) => s.noteIndex);
   const openTag = useAppStore((s) => s.openTag);
+  const openNote = useAppStore((s) => s.openNote);
+  const createNote = useAppStore((s) => s.createNote);
   const noteAsideOpen = useAppStore((s) => s.noteAsideOpen);
+  const journalFocusDate = useAppStore((s) => s.journalFocusDate);
+  const setJournalFocusDate = useAppStore((s) => s.setJournalFocusDate);
+  const presentationMode = useAppStore((s) => s.presentationMode);
 
   const editorRef = useRef<ReturnType<typeof useEditor>>(null);
   const initialMarkdown = splitMarkdownFrontmatter(activeNoteContent);
@@ -41,22 +52,27 @@ export function NoteEditor() {
 
   const editor = useEditor({
     immediatelyRender: false,
+    editable: !presentationMode,
     extensions: [
       noteStarterKit,
+      TaskList,
+      TaskItem.configure({ nested: true }),
       VaultImage,
       HashTag,
+      WikiLink,
       Markdown.configure({
         markedOptions: { gfm: true, breaks: false, pedantic: false },
       }),
       Placeholder.configure({
         placeholder: isJournal
           ? "Write freely. Tag ideas with #idea…"
-          : "Write a longform note. Use #tags to organize…",
+          : "Write a longform note. Use #tags and [[WikiLinks]]…",
       }),
     ],
     content: markdownForEditor(initialMarkdown.body, vaultPath),
     contentType: "markdown",
     onUpdate: ({ editor: ed }) => {
+      if (useAppStore.getState().presentationMode) return;
       setNoteContent(frontmatterRef.current + ed.getMarkdown());
     },
     editorProps: imageEditorProps(
@@ -66,6 +82,11 @@ export function NoteEditor() {
   });
 
   editorRef.current = editor;
+
+  useEffect(() => {
+    if (!editor) return;
+    editor.setEditable(!presentationMode);
+  }, [editor, presentationMode]);
 
   useEffect(() => {
     if (!editor || !activeNotePath) return;
@@ -82,16 +103,47 @@ export function NoteEditor() {
     }
   }, [activeNotePath, activeNoteContent, editor]);
 
+  useEffect(() => {
+    if (!journalFocusDate || !editor) return;
+    const wantedHeading = formatJournalHeading(journalFocusDate);
+    const frame = requestAnimationFrame(() => {
+      const headings = document.querySelectorAll(
+        ".note-editor-body .ProseMirror h1",
+      );
+      for (const heading of headings) {
+        if (heading.textContent?.trim() === wantedHeading) {
+          heading.scrollIntoView({ behavior: "smooth", block: "start" });
+          break;
+        }
+      }
+      setJournalFocusDate(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [journalFocusDate, editor, activeNoteContent, setJournalFocusDate]);
+
   if (!activeNotePath) {
     return (
       <div className="empty-state">
         <div>
           <h2>No note open</h2>
-          <p>Create or open a note from the sidebar.</p>
+          <p>Create or open a note from the sidebar to get started.</p>
         </div>
       </div>
     );
   }
+
+  const openWiki = (target: string) => {
+    const library = noteIndex.filter(
+      (n) => !isNodeNotesPath(n.folder) && !isTagNotesPath(n.folder),
+    );
+    const hit = resolveWikiTarget(library, target);
+    if (hit) {
+      void openNote(hit.path);
+      return;
+    }
+    if (presentationMode) return;
+    void createNote(target);
+  };
 
   const onClickCapture = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
@@ -104,9 +156,10 @@ export function NoteEditor() {
       if (tag) openTag(tag);
       return;
     }
-    handleNoteEditorLinkClick(e, (message) =>
-      useAppStore.setState({ error: message }),
-    );
+    handleNoteEditorLinkClick(e, {
+      onError: (message) => useAppStore.setState({ error: message }),
+      onWikiTarget: openWiki,
+    });
   };
 
   const title =
@@ -115,18 +168,37 @@ export function NoteEditor() {
       : (activeNoteName ?? "Note");
 
   return (
-    <div className={`note-view ${noteAsideOpen ? "" : "full"}`}>
+    <div
+      className={`note-view ${noteAsideOpen && !presentationMode ? "" : "full"} ${presentationMode ? "is-presenting" : ""}`}
+    >
       <div className="note-editor-wrap" onClickCapture={onClickCapture}>
-        <div className="note-editor-header">
-          <h2 style={{ fontFamily: "var(--font-display)", margin: 0 }}>
-            {title}
-          </h2>
-          <NoteAsideToggle />
+        {!presentationMode && (
+          <div className="note-editor-header">
+            <h2
+              style={{
+                fontFamily: "var(--font-display)",
+                marginTop: 0,
+                marginBottom: 0,
+              }}
+            >
+              {title}
+            </h2>
+            <NoteAsideToggle />
+          </div>
+        )}
+        {!presentationMode && <NoteToolbar editor={editor} />}
+        <div className="note-editor-body">
+          {presentationMode && (
+            <h2 className="presentation-note-title">{title}</h2>
+          )}
+          <EditorContent editor={editor} />
+          {!presentationMode && <WikiLinkSuggest editor={editor} />}
+          {!presentationMode && (
+            <QueryBlockView content={activeNoteContent} />
+          )}
         </div>
-        <NoteToolbar editor={editor} />
-        <EditorContent editor={editor} />
       </div>
-      {noteAsideOpen && <NoteAside />}
+      {!presentationMode && noteAsideOpen && <NoteAside />}
     </div>
   );
 }

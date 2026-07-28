@@ -18,6 +18,7 @@ const MIND_ACTIONS: KeyAction[] = [
   "edit",
   "toggle-collapse",
   "toggle-node-panel",
+  "focus-node",
   "delete",
   "escape",
   "undo",
@@ -73,6 +74,31 @@ export function ShortcutsModal() {
                     <kbd>Shift+Enter</kbd>
                   </td>
                   <td>New line while editing node text</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+          <section className="shortcuts-section">
+            <h3>Global</h3>
+            <table className="shortcuts-table">
+              <tbody>
+                <tr>
+                  <td>
+                    <kbd>Ctrl+K</kbd>
+                  </td>
+                  <td>Search vault (notes, maps, nodes, tags, paths)</td>
+                </tr>
+                <tr>
+                  <td>
+                    <kbd>F5</kbd>
+                  </td>
+                  <td>Enter / exit presentation mode (map or note)</td>
+                </tr>
+                <tr>
+                  <td>
+                    <kbd>Esc</kbd>
+                  </td>
+                  <td>Exit presentation mode</td>
                 </tr>
               </tbody>
             </table>

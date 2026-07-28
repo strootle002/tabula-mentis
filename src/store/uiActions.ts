@@ -15,7 +15,31 @@ export type UiActions = Pick<
   | "setShortcutsOpen"
   | "updateKeybindings"
   | "resetKeybindings"
+  | "pushToast"
+  | "dismissToast"
+  | "requestConfirm"
+  | "enterPresentationMode"
+  | "exitPresentationMode"
+  | "togglePresentationMode"
 >;
+
+async function readFullscreen(): Promise<boolean> {
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    return await getCurrentWindow().isFullscreen();
+  } catch {
+    return false;
+  }
+}
+
+async function writeFullscreen(fullscreen: boolean): Promise<void> {
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    await getCurrentWindow().setFullscreen(fullscreen);
+  } catch {
+    /* Chrome-hide presentation still works without OS fullscreen. */
+  }
+}
 
 function sanitizeOverrides(raw: Record<string, unknown>): KeybindingOverrides {
   const next: KeybindingOverrides = {};
@@ -41,7 +65,7 @@ function sanitizeOverrides(raw: Record<string, unknown>): KeybindingOverrides {
   return next;
 }
 
-export function createUiActions(set: SetState, _get: GetState): UiActions {
+export function createUiActions(set: SetState, get: GetState): UiActions {
   return {
   openSettings: () => set({ view: "settings" }),
 
@@ -64,6 +88,52 @@ export function createUiActions(set: SetState, _get: GetState): UiActions {
     setKeybindingOverrides({});
     set({ keybindings: {} });
     await setStoredKeybindings({});
+  },
+
+  pushToast: (message, tone = "info") => {
+    const id = crypto.randomUUID();
+    set((state) => ({ toasts: [...state.toasts, { id, message, tone }] }));
+    return id;
+  },
+
+  dismissToast: (id) => {
+    set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }));
+  },
+
+  requestConfirm: ({ title, message, confirmLabel, danger }) =>
+    new Promise<boolean>((resolve) => {
+      set({ confirmDialog: { title, message, confirmLabel, danger, resolve } });
+    }),
+
+  enterPresentationMode: async () => {
+    const { view, presentationMode } = get();
+    if (presentationMode) return;
+    if (view !== "map" && view !== "note") return;
+    const fullscreen = await readFullscreen();
+    set({
+      presentationMode: true,
+      presentationPrev: { fullscreen },
+      editingNodeId: null,
+      linkingFromId: null,
+      pendingLink: null,
+    });
+    if (!fullscreen) await writeFullscreen(true);
+  },
+
+  exitPresentationMode: async () => {
+    const { presentationMode, presentationPrev } = get();
+    if (!presentationMode) return;
+    set({ presentationMode: false, presentationPrev: null });
+    const wasFullscreen = presentationPrev?.fullscreen ?? false;
+    const nowFullscreen = await readFullscreen();
+    if (nowFullscreen !== wasFullscreen) {
+      await writeFullscreen(wasFullscreen);
+    }
+  },
+
+  togglePresentationMode: async () => {
+    if (get().presentationMode) await get().exitPresentationMode();
+    else await get().enterPresentationMode();
   },
   };
 }

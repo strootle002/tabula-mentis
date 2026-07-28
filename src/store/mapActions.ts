@@ -1,23 +1,81 @@
 import type { AppActions, GetState, SetState } from "./storeTypes";
-import { recordMapChange, queueMapSave, scheduleMapSave } from "./storeServices";
-import type { RadialDir } from "../mindmap/types";
+import { recordMapChange, queueMapSave, scheduleMapSave, maybeToastSaved } from "./storeServices";
+import type { MindNode, RadialDir } from "../mindmap/types";
 import { createEmptyNode, loadNote, syncNodeNoteToVault, nodeNoteMirrorPath, nodeNotesFolderForMap } from "../vault/vaultFs";
 import { collapseAll, collapseOneLevel, expandAll, expandOneLevel } from "../mindmap/layout";
-import { collectDescendantIdsInDoc, findNodeInDoc, findParentInDoc, isFloatingRoot, pruneLinks, removeNodeInDoc, updateNodeInDoc } from "../mindmap/mapDoc";
+import { cloneNodeWithNewIds, collectDescendantIdsInDoc, findNodeInDoc, findParentInDoc, isFloatingRoot, pruneLinks, removeNodeInDoc, updateNodeInDoc } from "../mindmap/mapDoc";
 import { flattenMapTags, upsertMapTagIndex, upsertNoteIndex } from "./indexing";
 import { beginOwnWrite, endOwnWrite } from "./vaultWatcher";
 import { rememberSavedNote } from "./storeServices";
 
-export type MapActions = Pick<AppActions, "setSelectedNode" | "setEditingNode" | "updateSelectedText" | "updateSelectedNote" | "updateNodeNote" | "updateSelectedStyle" | "addChildToSelected" | "addSiblingToSelected" | "deleteSelected" | "toggleCollapseSelected" | "setCollapseSelected" | "collapseOneLevelSelected" | "expandOneLevelSelected" | "collapseAllNodes" | "expandAllNodes" | "saveActiveMap">;
+const SUBTREE_CLIPBOARD_KIND = "mindmap-subtree";
+
+export type MapActions = Pick<AppActions, "setSelectedNode" | "toggleNodeSelection" | "clearNodeSelection" | "deleteSelectedNodes" | "setEditingNode" | "updateSelectedText" | "updateSelectedNote" | "updateNodeNote" | "updateSelectedStyle" | "addChildToSelected" | "addSiblingToSelected" | "deleteSelected" | "copySelectedSubtree" | "pasteSubtreeFromClipboard" | "toggleCollapseSelected" | "setCollapseSelected" | "collapseOneLevelSelected" | "expandOneLevelSelected" | "collapseAllNodes" | "expandAllNodes" | "saveActiveMap">;
 
 export function createMapActions(set: SetState, get: GetState): MapActions {
   return {
   setSelectedNode: (id) =>
     set((s) => ({
       selectedNodeId: id,
+      selectedNodeIds: [],
       // Keep editing when re-selecting the node being edited (focus sync).
       editingNodeId: s.editingNodeId === id ? id : null,
     })),
+
+  toggleNodeSelection: (id) =>
+    set((s) => {
+      const base = new Set(s.selectedNodeIds);
+      if (s.selectedNodeId && !base.has(s.selectedNodeId)) {
+        base.add(s.selectedNodeId);
+      }
+      if (base.has(id)) base.delete(id);
+      else base.add(id);
+      const selectedNodeIds = [...base];
+      return {
+        selectedNodeIds,
+        selectedNodeId: selectedNodeIds.length
+          ? selectedNodeIds[selectedNodeIds.length - 1]
+          : null,
+        editingNodeId: null,
+      };
+    }),
+
+  clearNodeSelection: () => set({ selectedNodeIds: [] }),
+
+  deleteSelectedNodes: () => {
+    const { activeMap, selectedNodeId, selectedNodeIds } = get();
+    if (!activeMap) return;
+    const ids = new Set(selectedNodeIds);
+    if (selectedNodeId) ids.add(selectedNodeId);
+    ids.delete(activeMap.root.id);
+    if (ids.size === 0) return;
+    if (ids.size === 1) {
+      set({ selectedNodeId: [...ids][0]!, selectedNodeIds: [] });
+      get().deleteSelected();
+      return;
+    }
+    recordMapChange(get, set, "Delete nodes");
+    let next = activeMap;
+    for (const id of ids) {
+      if (!findNodeInDoc(next, id)) continue;
+      next = removeNodeInDoc(next, id);
+    }
+    next = { ...next, links: pruneLinks(next) };
+    let positions = next.positions;
+    if (positions) {
+      const nextPos = { ...positions };
+      for (const id of ids) delete nextPos[id];
+      positions = Object.keys(nextPos).length ? nextPos : undefined;
+    }
+    set({
+      activeMap: { ...next, positions },
+      selectedNodeId: activeMap.root.id,
+      selectedNodeIds: [],
+      editingNodeId: null,
+      dirtyMap: true,
+    });
+    scheduleMapSave(get, set);
+  },
 
   setEditingNode: (id) => set({ editingNodeId: id }),
 
@@ -246,6 +304,82 @@ export function createMapActions(set: SetState, get: GetState): MapActions {
     scheduleMapSave(get, set);
   },
 
+  copySelectedSubtree: async () => {
+    const { activeMap, selectedNodeId } = get();
+    if (!activeMap || !selectedNodeId) return false;
+    const node = findNodeInDoc(activeMap, selectedNodeId);
+    if (!node) return false;
+    const payload = JSON.stringify({ kind: SUBTREE_CLIPBOARD_KIND, node });
+    try {
+      await navigator.clipboard.writeText(payload);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  pasteSubtreeFromClipboard: async () => {
+    const { activeMap, selectedNodeId, panX, panY, zoom } = get();
+    if (!activeMap) return false;
+    let raw: string;
+    try {
+      raw = await navigator.clipboard.readText();
+    } catch {
+      return false;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return false;
+    }
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      (parsed as { kind?: string }).kind !== SUBTREE_CLIPBOARD_KIND ||
+      !(parsed as { node?: unknown }).node
+    ) {
+      return false;
+    }
+    const clone = cloneNodeWithNewIds(
+      (parsed as { node: MindNode }).node,
+    );
+    recordMapChange(get, set, "Paste subtree");
+    const targetId =
+      selectedNodeId && findNodeInDoc(activeMap, selectedNodeId)
+        ? selectedNodeId
+        : null;
+    if (targetId) {
+      const next = updateNodeInDoc(activeMap, targetId, (n) => ({
+        ...n,
+        collapsed: false,
+        children: [...n.children, clone],
+      }));
+      set({
+        activeMap: next,
+        selectedNodeId: clone.id,
+        selectedNodeIds: [],
+        dirtyMap: true,
+      });
+    } else {
+      const x = (140 - panX) / zoom;
+      const y = (140 - panY) / zoom;
+      const floatingNodes = [...(activeMap.floatingNodes ?? []), clone];
+      const positions = {
+        ...(activeMap.positions ?? {}),
+        [clone.id]: { x, y },
+      };
+      set({
+        activeMap: { ...activeMap, floatingNodes, positions },
+        selectedNodeId: clone.id,
+        selectedNodeIds: [],
+        dirtyMap: true,
+      });
+    }
+    scheduleMapSave(get, set);
+    return true;
+  },
+
   toggleCollapseSelected: () => {
     const { activeMap, selectedNodeId } = get();
     if (!activeMap || !selectedNodeId) return;
@@ -326,6 +460,7 @@ export function createMapActions(set: SetState, get: GetState): MapActions {
       latest.activeMapPath === activeMapPath &&
       latest.activeMap === activeMap
     ) {
+      if (latest.dirtyMap) maybeToastSaved(get);
       set({ dirtyMap: false });
     }
   }

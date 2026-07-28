@@ -40,6 +40,8 @@ export interface ExportLayoutToPngOptions {
   flowDir?: FlowDir | null;
   colors: ExportPngColors;
   vaultPath?: string | null;
+  /** World-space crop (e.g. the current viewport). Omit to render the full map. */
+  region?: { x: number; y: number; width: number; height: number };
 }
 
 function cssColor(name: string, fallback: string): string {
@@ -98,6 +100,11 @@ function mimeFromPath(path: string): string {
   }
 }
 
+/** MIME type for a vault asset path (used by PNG + HTML exporters). */
+export function assetMimeFromPath(path: string): string {
+  return mimeFromPath(path);
+}
+
 function loadHtmlImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -133,11 +140,12 @@ async function loadNodeImage(
   }
 }
 
-function edgePath(
+/** SVG/`Path2D` compatible edge curve (shared with visual HTML export). */
+export function edgePathD(
   edge: LayoutEdge,
   layoutStyle: MapLayoutStyle,
   flowDir: FlowDir | null | undefined,
-): Path2D {
+): string {
   const mx = (edge.x1 + edge.x2) / 2;
   const my = (edge.y1 + edge.y2) / 2;
   const isLink = edge.kind === "link";
@@ -158,21 +166,24 @@ function edgePath(
         (flowDir === "left" || flowDir === "right")) ||
       (radialOrConcept && dx > dy));
 
-  const path = new Path2D();
   if (useVerticalCurve) {
-    path.moveTo(edge.x1, edge.y1);
-    path.bezierCurveTo(edge.x1, my, edge.x2, my, edge.x2, edge.y2);
-  } else if (useHorizontalCurve) {
-    path.moveTo(edge.x1, edge.y1);
-    path.bezierCurveTo(mx, edge.y1, mx, edge.y2, edge.x2, edge.y2);
-  } else if (isLink) {
-    path.moveTo(edge.x1, edge.y1);
-    path.quadraticCurveTo(mx, my - 28, edge.x2, edge.y2);
-  } else {
-    path.moveTo(edge.x1, edge.y1);
-    path.bezierCurveTo(mx, edge.y1, mx, edge.y2, edge.x2, edge.y2);
+    return `M ${edge.x1} ${edge.y1} C ${edge.x1} ${my}, ${edge.x2} ${my}, ${edge.x2} ${edge.y2}`;
   }
-  return path;
+  if (useHorizontalCurve) {
+    return `M ${edge.x1} ${edge.y1} C ${mx} ${edge.y1}, ${mx} ${edge.y2}, ${edge.x2} ${edge.y2}`;
+  }
+  if (isLink) {
+    return `M ${edge.x1} ${edge.y1} Q ${mx} ${my - 28}, ${edge.x2} ${edge.y2}`;
+  }
+  return `M ${edge.x1} ${edge.y1} C ${mx} ${edge.y1}, ${mx} ${edge.y2}, ${edge.x2} ${edge.y2}`;
+}
+
+function edgePath(
+  edge: LayoutEdge,
+  layoutStyle: MapLayoutStyle,
+  flowDir: FlowDir | null | undefined,
+): Path2D {
+  return new Path2D(edgePathD(edge, layoutStyle, flowDir));
 }
 
 function drawArrowhead(
@@ -324,9 +335,10 @@ export async function exportLayoutToPng(
   layout: LayoutResult,
   options: ExportLayoutToPngOptions,
 ): Promise<Blob> {
+  const region = options.region;
   const { width, height, scale } = exportRasterSize(
-    layout.width,
-    layout.height,
+    region ? region.width : layout.width,
+    region ? region.height : layout.height,
   );
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -337,6 +349,7 @@ export async function exportLayoutToPng(
   ctx.fillStyle = options.colors.canvas;
   ctx.fillRect(0, 0, width, height);
   ctx.scale(scale, scale);
+  if (region) ctx.translate(-region.x, -region.y);
 
   const flowDir = options.flowDir;
   for (const edge of layout.edges) {

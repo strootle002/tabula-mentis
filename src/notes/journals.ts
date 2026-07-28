@@ -60,6 +60,38 @@ export function emptyJournalTemplate(date = new Date()): string {
   return `${todayHeading(date)}\n\n`;
 }
 
+export interface JournalDateHeading {
+  dateKey: string;
+  heading: string;
+}
+
+/** Parse `# <formatted date>` day headings out of a continuous journal body. */
+export function listJournalDates(content: string): JournalDateHeading[] {
+  const out: JournalDateHeading[] = [];
+  const re = /^#\s+(.+)$/gm;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content))) {
+    const heading = m[1].trim();
+    const dateKey = journalHeadingToDateKey(heading);
+    if (dateKey) out.push({ dateKey, heading });
+  }
+  return out;
+}
+
+const WEEKDAY_DATE_RE =
+  /^(?:Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday),?\s+([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})$/;
+
+/** Reverse of formatJournalHeading; returns null when the text isn't a day heading. */
+function journalHeadingToDateKey(heading: string): string | null {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(heading)) return heading;
+  const match = WEEKDAY_DATE_RE.exec(heading);
+  if (!match) return null;
+  const [, monthName, day, year] = match;
+  const parsed = new Date(`${monthName} ${day}, ${year}`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return journalDateKey(parsed);
+}
+
 export function isJournalFolder(folder: string): boolean {
   return (
     folder === JOURNALS_FOLDER || folder.startsWith(`${JOURNALS_FOLDER}/`)

@@ -13,6 +13,14 @@ vi.mock("../vault/vaultFs", async (importOriginal) => ({
   saveNoteAtPath: fsMocks.saveNoteAtPath,
 }));
 
+vi.mock("@tauri-apps/plugin-store", () => ({
+  getStore: vi.fn(async () => ({
+    get: vi.fn(async () => null),
+    set: vi.fn(),
+    save: vi.fn(),
+  })),
+}));
+
 import { createAppState } from "./appStore";
 import { handleExternalPaths, rememberSavedMap } from "./storeServices";
 
@@ -84,9 +92,33 @@ describe("app store slice composition", () => {
     store.getState().updateNodeNote("root", "#incremental");
 
     expect(store.getState().mapTagsByPath).toEqual({
-      "/vault/Maps/map.map.json": ["incremental"],
+      "/vault/Maps/map.map.json": ["incremental", "root"],
     });
-    expect(store.getState().mapNodeTags).toEqual(["incremental"]);
+    expect(store.getState().mapNodeTags).toEqual(["incremental", "root"]);
+  });
+
+  it("surfaces the active map root as a hit for its own tag", async () => {
+    const store = createStore(createAppState);
+    const active = map(node("root-id", "", "My Project"));
+    store.setState({
+      vaultPath: "/vault",
+      maps: [{ name: "Map", path: "/vault/maps/map.map.json", folder: "" }],
+      activeMap: active,
+      activeMapPath: "/vault/maps/map.map.json",
+      noteIndex: [],
+    });
+
+    await store.getState().openTag("my-project");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(store.getState().tagHits).toContainEqual(
+      expect.objectContaining({
+        source: "node",
+        nodeId: "root-id",
+        mapPath: "/vault/maps/map.map.json",
+        line: "My Project",
+      }),
+    );
   });
 
   it("indexes a saved journal note without requiring concept-graph sync", async () => {

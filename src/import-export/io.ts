@@ -1,3 +1,4 @@
+import { isTauri } from "@tauri-apps/api/core";
 import type { MindMapDocument, MindNode } from "../mindmap/types";
 import { createEmptyNode } from "../vault/vaultFs";
 
@@ -501,11 +502,19 @@ function emptyDoc(title: string): MindMapDocument {
 }
 
 export function downloadBlob(blob: Blob, fileName: string) {
+  // blob: + <a download> can navigate/crash Tauri WebKitGTK under CSP.
+  // Exports in the desktop app must use the native save dialog + writeFile.
+  if (isTauri()) return;
+
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = fileName;
+  a.rel = "noopener";
+  a.style.display = "none";
+  document.body.appendChild(a);
   a.click();
+  a.remove();
   // Delay revoke so the browser can start the download.
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }

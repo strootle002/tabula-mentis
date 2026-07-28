@@ -7,13 +7,15 @@ import { useAppStore } from "../store/appStore";
 import { notesWithTag } from "../notes/links";
 import { NoteToolbar } from "./NoteToolbar";
 import { VaultImage, imageEditorProps } from "./imageSupport";
-import { HashTag } from "./wikiAndTags";
+import { HashTag, WikiLink } from "./wikiAndTags";
+import { isNodeNotesPath, isTagNotesPath } from "../vault/vaultFs";
+import { resolveWikiTarget } from "./links";
 import {
   markdownForEditor,
   splitMarkdownFrontmatter,
 } from "./editorMarkdown";
 import { handleNoteEditorLinkClick } from "./openNoteLink";
-import { isNodeNotesPath, isTagNotesPath } from "../vault/vaultFs";
+import { TaskItem, TaskList } from "@tiptap/extension-list";
 
 const tagNoteStarterKit = StarterKit.configure({
   link: { openOnClick: false },
@@ -25,17 +27,35 @@ function TagNoteEditor({ tag }: { tag: string }) {
   const vaultPath = useAppStore((s) => s.vaultPath);
   const setTagNoteContent = useAppStore((s) => s.setTagNoteContent);
   const openTag = useAppStore((s) => s.openTag);
+  const openNote = useAppStore((s) => s.openNote);
+  const createNote = useAppStore((s) => s.createNote);
+  const noteIndex = useAppStore((s) => s.noteIndex);
 
   const editorRef = useRef<ReturnType<typeof useEditor>>(null);
   const initial = splitMarkdownFrontmatter(content);
   const frontmatterRef = useRef(initial.frontmatter);
 
+  const openWiki = (target: string) => {
+    const library = noteIndex.filter(
+      (n) => !isNodeNotesPath(n.folder) && !isTagNotesPath(n.folder),
+    );
+    const hit = resolveWikiTarget(library, target);
+    if (hit) {
+      void openNote(hit.path);
+      return;
+    }
+    void createNote(target);
+  };
+
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
       tagNoteStarterKit,
+      TaskList,
+      TaskItem.configure({ nested: true }),
       VaultImage,
       HashTag,
+      WikiLink,
       Markdown.configure({
         markedOptions: { gfm: true, breaks: false, pedantic: false },
       }),
@@ -82,9 +102,10 @@ function TagNoteEditor({ tag }: { tag: string }) {
       if (next) void openTag(next);
       return;
     }
-    handleNoteEditorLinkClick(e, (message) =>
-      useAppStore.setState({ error: message }),
-    );
+    handleNoteEditorLinkClick(e, {
+      onError: (message) => useAppStore.setState({ error: message }),
+      onWikiTarget: openWiki,
+    });
   };
 
   return (

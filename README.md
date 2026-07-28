@@ -1,58 +1,72 @@
 # Tabula Mentis
 
-*map of the mind*
+_map of the mind_
 
-Tabula Mentis is a local-first desktop application for visual thinking and linked
-notes, built with Tauri 2, React, and TypeScript. Your maps, notes, and images
-stay in a folder you choose instead of an application-owned cloud service.
+Local-first desktop app for mind maps + linked notes. Tauri 2, React, TypeScript.
+Vaults are plain folders you own. No account, no cloud backend.
 
-> **Project status:** pre-1.0 and under active development. Back up important
-> vaults and review the [limitations](#limitations) before relying on it.
+> **Status:** pre-1.0, active development. Back up vaults. See [limitations](#limitations).
+
+## What's in v0.2
+
+- Nav rail: Journal / Favorites / Library / Tags, plus New, Search (`Ctrl+K`), Settings
+- Favorites: pin maps/notes (library context menu → Add to favorites)
+- Recents: last 5 opened files in Library
+- Map-as-tag: each map root shows up in tags + search
+- Presentation mode (`F5`): fullscreen, focus path, Esc to exit
+- Stronger selected-node highlight for keyboard nav
+- HTML export: visual SVG map (with embedded images) or outline
+- PNG export: full map or viewport
+- WikiLink suggest, backlinks, live `query` blocks in notes
+- Map templates, rename, toasts/confirms, panel persistence QoL
 
 ## Features
 
-- Folder-based, user-owned vaults with scoped native filesystem access
-- Map canvas with pan, zoom, multiple layouts, collapse/expand, and
-  keyboard navigation
-- Per-node notes, images, colors, scale, and typography
-- Markdown notes with `[[WikiLinks]]`, backlinks, and `#tags`
-- Journals and generated concept-map views
-- Data-grid and tag views, map history, and external-change conflict handling
-- Vault search for note content, maps, nodes, tags, and paths (`Ctrl+K`)
-- CSV, text, Freeplane `.mm`, and OPML import
-- JSON, CSV, Freeplane, OPML, and viewport PNG export
-- Themes and configurable default node styles
-- Crash-aware writes with temporary-file cleanup and recovery copies
+**Vault**
 
-### Content foundations
+- Folder-based vault, scoped native FS access
+- Themes, default node styles, crash-aware writes + recovery copies
 
-Markdown paragraph and list blocks support explicit stable IDs with a trailing
-`^block-id`. The block API resolves `((block-id))` references and
-`{{embed ((block-id))}}` transclusions with cycle/depth protection. Indexing
-does not rewrite existing notes; assigning missing IDs is explicit.
+**Maps**
 
-Safe local queries support `text`, `tag`, `page`, `map`, `property`, `task`,
-and `status` predicates with `AND`, `OR`, `NOT`, and parentheses. Fenced
-`query` directives can be parsed without evaluating JavaScript.
+- Pan/zoom canvas, keyboard nav, collapse/expand
+- Layouts: right, left, down, radial (+ legacy flowchart/concept still render)
+- Per-node notes, images, colors, scale, typography
+- Multi-select, copy/paste subtree, snap, focus selected
+- Free associative links, history/undo
 
-The versioned plugin registry is disabled by default and accepts only reviewed,
-built-in adapters with declared capabilities. It does not load vault
-JavaScript, dynamically import third-party code, or expose raw filesystem
-access.
+**Notes**
 
-## Install prerequisites
+- Markdown with `[[WikiLinks]]`, `#tags`, backlinks
+- Journals (continuous + day jump)
+- Block IDs (`^id`), `((id))` refs, embed directives
+- Safe local queries: `text` / `tag` / `page` / `map` / `property` / `task` / `status` with `AND`/`OR`/`NOT`
 
-Prebuilt packages may be attached to project workflow runs or releases. Unless
-the release notes say otherwise, artifacts should be treated as unsigned.
+**Search & browse**
 
-To build from source, install:
+- Vault search: notes, maps, nodes, tags, paths (`Ctrl+K`)
+- Tag browser; map roots count as tags
+- Data grid view
 
-- Node.js 22 LTS (Vite requires Node.js 20.19+ or 22.12+) and npm
-- The stable Rust toolchain
-- The [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/) for
-  your platform
+**Import / export**
 
-On Ubuntu/Debian:
+- Import: CSV, text, Freeplane `.mm`, OPML
+- Export: JSON, CSV, Freeplane, OPML, PNG, HTML (visual or outline)
+
+Plugin registry exists but is off by default (built-in adapters only; no vault JS).
+
+## Install
+
+Grab binaries from [Releases](https://github.com/strootle002/tabula-mentis/releases).
+Treat them as **unsigned** unless notes say otherwise.
+
+Build from source needs:
+
+- Node.js 22 LTS (Vite wants 20.19+ or 22.12+) + npm
+- Stable Rust
+- [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/)
+
+Ubuntu/Debian:
 
 ```bash
 sudo apt-get update
@@ -61,24 +75,23 @@ sudo apt-get install -y \
   librsvg2-dev libssl-dev libwebkit2gtk-4.1-dev patchelf
 ```
 
-macOS requires Xcode Command Line Tools. Windows requires Microsoft C++ Build
-Tools and WebView2; current Windows installations commonly include WebView2.
+macOS: Xcode CLT. Windows: MSVC Build Tools + WebView2.
 
-## Develop, test, and build
+## Develop / test / build
 
 ```bash
 npm ci
-npm run tauri dev       # desktop development
-npm run dev             # frontend-only development
+npm run tauri dev       # desktop
+npm run dev             # frontend only
 
 npm test
 npm run lint
 npm run format:check
-npm run build           # production frontend
-npm run tauri build     # native bundles for the current platform
+npm run build           # frontend
+npm run tauri build     # native bundles (this machine)
 ```
 
-Rust checks:
+Rust:
 
 ```bash
 cd src-tauri
@@ -88,9 +101,9 @@ cargo test --all-targets --all-features
 cargo check --all-targets --all-features
 ```
 
-## Vault format and data ownership
+Tag `v*` pushes run `.github/workflows/package.yml` (Linux, macOS arm/intel, Windows).
 
-Tabula Mentis creates and edits ordinary files inside the directory you select:
+## Vault layout
 
 ```text
 MyVault/
@@ -101,41 +114,24 @@ MyVault/
   mindmap-meta/settings.json
 ```
 
-Additional metadata, recovery, journal, and node-note files may be created
-within these folders. Application preferences and the remembered trusted-vault
-record live in the operating system's application-data directory.
+Plus meta, recovery, journals, node-notes as needed. App prefs + trusted vault path live in OS app-data.
 
-You own and control the vault directory. You can inspect, copy, synchronize, or
-version it with normal filesystem tools. Keep independent backups, especially
-while the format is pre-1.0. Avoid editing the same file concurrently from
-multiple applications unless you are prepared to resolve conflicts.
+You own the folder. Copy/sync/version it however you like. Keep backups while pre-1.0. Don't edit the same file from two apps at once unless you want conflict cleanup.
 
-## Security and privacy
+## Security / privacy
 
-Tabula Mentis does not require an account or cloud backend. Native code grants the
-webview access only after a folder is selected, validates its canonical path,
-and verifies a vault identity marker before reopening a remembered location.
-The packaged app uses a restrictive content security policy.
+No account or cloud. Native side grants FS access only after you pick a folder, checks the vault id, and reopens remembered paths carefully. Packaged CSP is tight.
 
-Local-first is not the same as encrypted: vault contents are plain JSON,
-Markdown, and image files. Anyone or any process with access to your user
-account or vault storage may read them. Tabula Mentis currently provides neither
-vault encryption nor end-to-end sync encryption. See [SECURITY.md](SECURITY.md)
-for responsible vulnerability reporting.
+Local-first ≠ encrypted. Vault files are plain JSON / Markdown / images. Anyone with your user account or disk can read them. No vault encryption or E2E sync yet. See [SECURITY.md](SECURITY.md).
 
 ## Limitations
 
-- The app and vault format are pre-1.0 and may evolve.
-- There is no built-in cloud sync, real-time collaboration, or encryption.
-- Automated packaging does not provide Apple notarization, Microsoft code
-  signing, Linux repository signing, or update-channel verification.
-- Cross-platform behavior is tested in CI, but desktop integration still needs
-  hands-on testing on each operating system.
-- Freeplane/OPML preserve hierarchy, notes, IDs, and supported styles.
-  Freeplane associative links are preserved. OPML canvas positions, images,
-  and cross-links are lossy because OPML has no standard representation for
-  them. XML imports reject DTD/entity declarations and enforce resource limits.
+- Pre-1.0 format may change
+- No built-in cloud sync, realtime collab, or encryption
+- Packaging is unsigned (no Apple notarization / Windows Authenticode / Linux repo signing)
+- CI covers platforms; desktop quirks still want hands-on checks
+- Freeplane/OPML keep hierarchy, notes, IDs, supported styles; Freeplane links kept. OPML drops canvas positions, images, cross-links. XML import rejects DTDs/entities and caps resources
 
 ## License
 
-Tabula Mentis is available under the [MIT License](LICENSE).
+[MIT](LICENSE)

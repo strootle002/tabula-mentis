@@ -100,4 +100,37 @@ describe("VaultSearchIndex", () => {
     expect(index.search("first")).toEqual([]);
     expect(index.search("replacement")[0].nodeId).toBe("child");
   });
+
+  it("indexes the map-as-tag slug so Ctrl+K finds the map and root", () => {
+    const docs = mapSearchDocuments("maps/plan.map.json", map("Plan", "Child"));
+    const mapDoc = docs.find((document) => document.kind === "map");
+    const rootDoc = docs.find((document) => document.nodeId === "root");
+    expect(mapDoc?.tags).toEqual(["overview"]);
+    expect(rootDoc?.tags).toEqual(["overview"]);
+
+    const index = new VaultSearchIndex();
+    replaceMapInIndex(index, "maps/plan.map.json", map("Plan", "Child"));
+    const hits = index.search("overview");
+    expect(hits.some((hit) => hit.kind === "map")).toBe(true);
+    expect(hits.some((hit) => hit.nodeId === "root")).toBe(true);
+  });
+
+  it("indexes hyphenated root-tag slugs that title tokens alone would miss", () => {
+    const doc: MindMapDocument = {
+      version: 1,
+      title: "Plan",
+      root: {
+        id: "root",
+        text: "My Research Plan",
+        children: [],
+      },
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const index = new VaultSearchIndex();
+    replaceMapInIndex(index, "maps/plan.map.json", doc);
+    const hits = index.search("my-research-plan");
+    expect(hits.map((hit) => hit.kind).sort()).toEqual(["map", "node"]);
+    expect(hits.find((hit) => hit.kind === "node")?.nodeId).toBe("root");
+  });
 });

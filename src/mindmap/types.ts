@@ -124,6 +124,13 @@ export interface LayoutResult {
 
 export type LibraryFolderSort = "alpha" | "modified" | "created" | "custom";
 
+/** A recently opened map or note, newest first. */
+export interface RecentPathEntry {
+  kind: "map" | "note";
+  path: string;
+  name: string;
+}
+
 export interface VaultSettings {
   themeId: string;
   canvasBackground?: string;
@@ -133,6 +140,14 @@ export interface VaultSettings {
   libraryFolderSort?: LibraryFolderSort;
   /** Full relative folder paths; used when libraryFolderSort is "custom". */
   libraryFolderOrder?: string[];
+  /** Debounce delay before autosaving map/note edits, in milliseconds. */
+  autosaveMs?: number;
+  /** Recently opened maps/notes, newest first (max 10). */
+  recentPaths?: RecentPathEntry[];
+  /** Favorited (pinned) library map/note paths. */
+  favoritePaths?: string[];
+  /** Dismissed the empty-map onboarding hint once; do not show it again. */
+  mapHintsDismissed?: boolean;
 }
 
 export interface VaultEntry {

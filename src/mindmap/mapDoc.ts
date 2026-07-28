@@ -145,6 +145,31 @@ export function collectDescendantIdsInDoc(
   return [];
 }
 
+/**
+ * Selected node plus its ancestors and descendants — used by presentation
+ * mode to glow the active branch and dim everything else.
+ */
+export function focusPathIds(
+  doc: Pick<MindMapDocument, "root" | "floatingNodes">,
+  selectedId: string | null | undefined,
+): Set<string> {
+  const path = new Set<string>();
+  if (!selectedId || !findNodeInDoc(doc, selectedId)) return path;
+
+  path.add(selectedId);
+  let walk: string | null = selectedId;
+  while (walk) {
+    const parent = findParentInDoc(doc, walk);
+    if (!parent) break;
+    path.add(parent.id);
+    walk = parent.id;
+  }
+  for (const id of collectDescendantIdsInDoc(doc, selectedId)) {
+    path.add(id);
+  }
+  return path;
+}
+
 export function createMapLink(
   fromId: string,
   toId: string,
@@ -156,6 +181,22 @@ export function createMapLink(
     toId,
     label,
   };
+}
+
+/** Deep-clone a node (and its subtree), assigning fresh ids throughout. */
+export function cloneNodeWithNewIds(node: MindNode): MindNode {
+  return {
+    ...node,
+    id: crypto.randomUUID(),
+    images: node.images?.map((img) => ({ ...img, id: crypto.randomUUID() })),
+    children: node.children.map(cloneNodeWithNewIds),
+  };
+}
+
+/** Strip per-node notes and images recursively (used when saving templates). */
+export function stripNodeContent(node: MindNode): MindNode {
+  const { note: _note, images: _images, image: _image, ...rest } = node;
+  return { ...rest, children: node.children.map(stripNodeContent) };
 }
 
 /** Drop links that reference missing nodes. */

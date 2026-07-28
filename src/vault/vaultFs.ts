@@ -59,9 +59,9 @@ export async function setAppThemeId(themeId: string): Promise<void> {
   await store.save();
 }
 
-export type NavMode = "journal" | "library" | "tags";
+export type NavMode = "journal" | "favorites" | "library" | "tags";
 
-const NAV_MODES: NavMode[] = ["journal", "library", "tags"];
+const NAV_MODES: NavMode[] = ["journal", "favorites", "library", "tags"];
 
 function clampSidebarWidth(width: number): number {
   return Math.min(520, Math.max(220, Math.round(width)));
@@ -77,15 +77,24 @@ export async function getSidebarPrefs(): Promise<{
   width: number;
   collapsed: boolean;
   navMode: NavMode;
+  minimapVisible: boolean;
+  nodePanelOpen: boolean;
+  noteAsideOpen: boolean;
 }> {
   const store = await getStore();
   const width = (await store.get<number>("sidebarWidth")) ?? 300;
   const collapsed = (await store.get<boolean>("sidebarCollapsed")) ?? false;
   const navMode = parseNavMode(await store.get("navMode"));
+  const minimapVisible = (await store.get<boolean>("minimapVisible")) ?? true;
+  const nodePanelOpen = (await store.get<boolean>("nodePanelOpen")) ?? true;
+  const noteAsideOpen = (await store.get<boolean>("noteAsideOpen")) ?? true;
   return {
     width: clampSidebarWidth(width),
     collapsed,
     navMode,
+    minimapVisible,
+    nodePanelOpen,
+    noteAsideOpen,
   };
 }
 
@@ -93,6 +102,9 @@ export async function setSidebarPrefs(prefs: {
   width?: number;
   collapsed?: boolean;
   navMode?: NavMode;
+  minimapVisible?: boolean;
+  nodePanelOpen?: boolean;
+  noteAsideOpen?: boolean;
 }): Promise<void> {
   const store = await getStore();
   if (prefs.width != null) {
@@ -103,6 +115,15 @@ export async function setSidebarPrefs(prefs: {
   }
   if (prefs.navMode != null) {
     await store.set("navMode", prefs.navMode);
+  }
+  if (prefs.minimapVisible != null) {
+    await store.set("minimapVisible", prefs.minimapVisible);
+  }
+  if (prefs.nodePanelOpen != null) {
+    await store.set("nodePanelOpen", prefs.nodePanelOpen);
+  }
+  if (prefs.noteAsideOpen != null) {
+    await store.set("noteAsideOpen", prefs.noteAsideOpen);
   }
   await store.save();
 }
@@ -286,6 +307,53 @@ export function vaultSettingsPath(vaultPath: string) {
   return joinPath(vaultMetaDir(vaultPath), "settings.json");
 }
 
+export function vaultTemplatesDir(vaultPath: string) {
+  return joinPath(vaultMetaDir(vaultPath), "templates");
+}
+
+/** List saved map templates under mindmap-meta/templates/. */
+export async function listMapTemplates(
+  vaultPath: string,
+): Promise<{ name: string; path: string }[]> {
+  const dir = vaultTemplatesDir(vaultPath);
+  if (!(await exists(dir))) return [];
+  const results: { name: string; path: string }[] = [];
+  for (const entry of await readDir(dir)) {
+    if (entry.name?.endsWith(".json") && !entry.isDirectory) {
+      results.push({
+        name: entry.name.replace(/\.json$/, ""),
+        path: joinPath(dir, entry.name),
+      });
+    }
+  }
+  return results.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Persist a (already-stripped) map document as a reusable template. */
+export async function saveMapTemplate(
+  vaultPath: string,
+  name: string,
+  doc: MindMapDocument,
+): Promise<string> {
+  const dir = vaultTemplatesDir(vaultPath);
+  if (!(await exists(dir))) await mkdir(dir, { recursive: true });
+  const base = slugify(name || "template");
+  let candidate = `${base}.json`;
+  let n = 2;
+  while (await exists(joinPath(dir, candidate))) {
+    candidate = `${base}-${n}.json`;
+    n += 1;
+  }
+  const path = joinPath(dir, candidate);
+  await writeTextFileSafely(path, JSON.stringify(doc, null, 2));
+  return path;
+}
+
+export async function loadMapTemplate(path: string): Promise<MindMapDocument> {
+  const raw = await readTextFile(path);
+  return parseMindMapJson(raw, path);
+}
+
 export function createEmptyNode(text = "New node"): MindNode {
   return {
     id: crypto.randomUUID(),
@@ -359,6 +427,7 @@ export const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   },
   libraryFolderSort: "alpha",
   libraryFolderOrder: [],
+  autosaveMs: 500,
 };
 
 async function readDirTimes(
@@ -1091,6 +1160,73 @@ export async function moveVaultItem(
 
   await rename(fromPath, destPath);
   return destPath;
+}
+
+/** Rename a map or note in place (same folder), picking a unique filename. */
+export async function renameVaultItem(
+  vaultPath: string,
+  kind: "map" | "note",
+  fromPath: string,
+  newTitle: string,
+): Promise<string> {
+  void vaultPath;
+  const sep = fromPath.includes("\\") ? "\\" : "/";
+  const dir = fromPath.slice(0, fromPath.lastIndexOf(sep));
+
+  const fileName =
+    kind === "map"
+      ? mapFileNameFromTitle(newTitle)
+      : noteFileNameFromTitle(newTitle);
+  const destPath = await uniquePathInDir(dir, fileName, kind, fromPath);
+  if (pathsEqual(destPath, fromPath)) return fromPath;
+
+  await rename(fromPath, destPath);
+  return destPath;
+}
+
+/**
+ * Rename the last segment of a library folder under both maps/ and notes/
+ * (user folders are dual, mirroring moveLibraryFolder/archiveFolder).
+ */
+export async function renameLibraryFolderFs(
+  vaultPath: string,
+  folderPath: string,
+  newName: string,
+): Promise<string> {
+  const from = normalizeVaultRelativePath(folderPath, { allowEmpty: false });
+  if (!from) throw new Error("Cannot rename library root");
+  const trimmedName = newName.trim();
+  validatePathSegment(trimmedName, "Folder name");
+
+  const parent = from.includes("/") ? from.slice(0, from.lastIndexOf("/")) : "";
+  let dest = parent ? `${parent}/${trimmedName}` : trimmedName;
+  if (dest === from) return from;
+
+  let n = 2;
+  while (
+    (await exists(
+      joinPath(vaultNotesDir(vaultPath), ...dest.split("/").filter(Boolean)),
+    )) ||
+    (await exists(
+      joinPath(vaultMapsDir(vaultPath), ...dest.split("/").filter(Boolean)),
+    ))
+  ) {
+    dest = parent ? `${parent}/${trimmedName}-${n}` : `${trimmedName}-${n}`;
+    n += 1;
+    if (n > 200) throw new Error("Could not find a free folder name");
+  }
+
+  for (const root of [vaultMapsDir(vaultPath), vaultNotesDir(vaultPath)]) {
+    const fromPath = joinPath(root, ...from.split("/").filter(Boolean));
+    const destPath = joinPath(root, ...dest.split("/").filter(Boolean));
+    if (!(await exists(fromPath))) continue;
+    if (await exists(destPath)) {
+      throw new Error(`Folder already exists at ${dest}`);
+    }
+    await rename(fromPath, destPath);
+  }
+
+  return dest;
 }
 
 export async function loadVaultSettings(

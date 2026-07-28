@@ -31,6 +31,14 @@ export function MindmapToolbar() {
   const setPanZoom = useAppStore((s) => s.setPanZoom);
   const minimapVisible = useAppStore((s) => s.minimapVisible);
   const toggleMinimap = useAppStore((s) => s.toggleMinimap);
+  const focusSelectedNode = useAppStore((s) => s.focusSelectedNode);
+  const snapToGrid = useAppStore((s) => s.snapToGrid);
+  const toggleSnapToGrid = useAppStore((s) => s.toggleSnapToGrid);
+  const copySelectedSubtree = useAppStore((s) => s.copySelectedSubtree);
+  const pasteSubtreeFromClipboard = useAppStore(
+    (s) => s.pasteSubtreeFromClipboard,
+  );
+  const pushToast = useAppStore((s) => s.pushToast);
 
   if (!activeMap) return null;
 
@@ -38,6 +46,8 @@ export function MindmapToolbar() {
     ? findNodeInDoc(activeMap, selectedNodeId)
     : null;
   const style = node?.style ?? {};
+  const fontSize = style.fontSize ?? 14;
+  const scale = style.scale ?? 1;
 
   const showGrid = () => {
     const { headers, rows } = mindMapToTable(activeMap);
@@ -176,6 +186,98 @@ export function MindmapToolbar() {
             onChange={(e) => updateSelectedStyle({ textColor: e.target.value })}
           />
         </label>
+      </div>
+
+      <div className="map-toolbar-group toolbar-stepper-group">
+        <span className="hint" title="Font size">Aa</span>
+        <button
+          type="button"
+          className="ghost-btn"
+          disabled={!node}
+          onClick={() =>
+            updateSelectedStyle({ fontSize: Math.max(10, fontSize - 1) })
+          }
+        >
+          −
+        </button>
+        <span className="hint">{fontSize}</span>
+        <button
+          type="button"
+          className="ghost-btn"
+          disabled={!node}
+          onClick={() =>
+            updateSelectedStyle({ fontSize: Math.min(28, fontSize + 1) })
+          }
+        >
+          +
+        </button>
+        <span className="hint" title="Scale">Size</span>
+        <button
+          type="button"
+          className="ghost-btn"
+          disabled={!node}
+          onClick={() =>
+            updateSelectedStyle({ scale: Math.max(0.7, +(scale - 0.1).toFixed(2)) })
+          }
+        >
+          −
+        </button>
+        <span className="hint">{scale.toFixed(2)}</span>
+        <button
+          type="button"
+          className="ghost-btn"
+          disabled={!node}
+          onClick={() =>
+            updateSelectedStyle({ scale: Math.min(2, +(scale + 0.1).toFixed(2)) })
+          }
+        >
+          +
+        </button>
+      </div>
+
+      <div className="map-toolbar-group">
+        <button
+          type="button"
+          className="ghost-btn"
+          disabled={!selectedNodeId}
+          onClick={focusSelectedNode}
+          title="Center the selected node in view (F)"
+        >
+          Focus
+        </button>
+        <button
+          type="button"
+          className="ghost-btn"
+          disabled={!selectedNodeId}
+          onClick={() =>
+            void copySelectedSubtree().then((ok) => {
+              if (ok) pushToast("Copied subtree", "success");
+            })
+          }
+          title="Copy selected node + subtree (Ctrl+C)"
+        >
+          Copy
+        </button>
+        <button
+          type="button"
+          className="ghost-btn"
+          onClick={() =>
+            void pasteSubtreeFromClipboard().then((ok) => {
+              if (ok) pushToast("Pasted subtree", "success");
+            })
+          }
+          title="Paste subtree as child of selected node (Ctrl+V)"
+        >
+          Paste
+        </button>
+        <button
+          type="button"
+          className={`ghost-btn ${snapToGrid ? "is-active" : ""}`}
+          onClick={toggleSnapToGrid}
+          title="Snap dragged nodes to a 20px grid (hold Shift to snap once)"
+        >
+          Snap
+        </button>
       </div>
 
       <div className="map-toolbar-group">

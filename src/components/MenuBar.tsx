@@ -3,7 +3,7 @@ import { writeFile } from "@tauri-apps/plugin-fs";
 import { save } from "@tauri-apps/plugin-dialog";
 import { useAppStore } from "../store/appStore";
 import { THEMES } from "../settings/themes";
-import { DIAGRAM_LAYOUTS, TREE_LAYOUTS } from "../mindmap/layoutCatalog";
+import { SELECTABLE_LAYOUTS } from "../mindmap/layoutCatalog";
 import { resolveLayout } from "../mindmap/layout";
 import { normalizeLayoutStyle } from "../mindmap/layoutCatalog";
 import {
@@ -15,6 +15,9 @@ import {
   exportLayoutToPng,
   exportThemeColors,
 } from "../import-export/exportPng";
+import { getCanvasWrap } from "../mindmap/canvasDom";
+import { noteContentToHtml, mapOutlineToHtml } from "../import-export/exportHtml";
+import { mapLayoutToVisualHtml } from "../import-export/exportMapHtml";
 import {
   previewOrphanImages,
   removeOrphanImages,
@@ -64,7 +67,16 @@ export function MenuBar() {
   const openDataGrid = useAppStore((s) => s.openDataGrid);
   const toggleSidebar = useAppStore((s) => s.toggleSidebar);
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed);
+  const presentationMode = useAppStore((s) => s.presentationMode);
+  const togglePresentationMode = useAppStore((s) => s.togglePresentationMode);
   const vaultPath = useAppStore((s) => s.vaultPath);
+  const panX = useAppStore((s) => s.panX);
+  const panY = useAppStore((s) => s.panY);
+  const zoom = useAppStore((s) => s.zoom);
+  const activeNotePath = useAppStore((s) => s.activeNotePath);
+  const activeNoteName = useAppStore((s) => s.activeNoteName);
+  const activeNoteContent = useAppStore((s) => s.activeNoteContent);
+  const saveActiveMapAsTemplate = useAppStore((s) => s.saveActiveMapAsTemplate);
 
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
@@ -141,7 +153,7 @@ export function MenuBar() {
     openDataGrid(activeMap.title, headers, rows);
   };
 
-  const exportPng = () => runExport("PNG", async () => {
+  const exportPngFullMap = () => runExport("PNG", async () => {
     if (!activeMap) return;
     const layoutStyle = normalizeLayoutStyle(
       activeMap.layoutStyle ?? vaultSettings.defaultLayoutStyle ?? "right",
@@ -170,6 +182,101 @@ export function MenuBar() {
     });
     if (path) await writeFile(path, new Uint8Array(await blob.arrayBuffer()));
     else downloadBlob(blob, `${activeMap.title || "map"}.png`);
+  });
+
+  const exportPngViewport = () => runExport("PNG", async () => {
+    if (!activeMap) return;
+    const layoutStyle = normalizeLayoutStyle(
+      activeMap.layoutStyle ?? vaultSettings.defaultLayoutStyle ?? "right",
+    );
+    const layout = resolveLayout(
+      activeMap.root,
+      vaultSettings.defaultNodeStyle,
+      layoutStyle,
+      activeMap.positions,
+      null,
+      activeMap.radialDirs,
+      activeMap.floatingNodes,
+      activeMap.links,
+      activeMap.flowDir,
+    );
+    const wrap = getCanvasWrap();
+    const viewW = wrap?.clientWidth || window.innerWidth;
+    const viewH = wrap?.clientHeight || window.innerHeight;
+    const region = {
+      x: -panX / zoom,
+      y: -panY / zoom,
+      width: viewW / zoom,
+      height: viewH / zoom,
+    };
+    const blob = await exportLayoutToPng(layout, {
+      layoutStyle,
+      flowDir: activeMap.flowDir,
+      colors: exportThemeColors(),
+      vaultPath,
+      region,
+    });
+    const path = await save({
+      defaultPath: `${activeMap.title || "map"}-viewport.png`,
+      filters: [{ name: "PNG", extensions: ["png"] }],
+    });
+    if (path) await writeFile(path, new Uint8Array(await blob.arrayBuffer()));
+    else downloadBlob(blob, `${activeMap.title || "map"}-viewport.png`);
+  });
+
+  const exportNoteHtml = () => runExport("HTML", async () => {
+    if (!activeNotePath) return;
+    const html = noteContentToHtml(activeNoteName || "Note", activeNoteContent);
+    const path = await save({
+      defaultPath: `${activeNoteName || "note"}.html`,
+      filters: [{ name: "HTML", extensions: ["html"] }],
+    });
+    // Never fall back to blob: for HTML — WebKit navigates and replaces the app.
+    if (!path) return;
+    await writeFile(path, new TextEncoder().encode(html));
+  });
+
+  const exportMapOutlineHtml = () => runExport("HTML", async () => {
+    if (!activeMap) return;
+    const html = mapOutlineToHtml(activeMap.title, activeMap.root);
+    const path = await save({
+      defaultPath: `${activeMap.title || "map"}-outline.html`,
+      filters: [{ name: "HTML", extensions: ["html"] }],
+    });
+    // Never fall back to blob: for HTML — WebKit navigates and replaces the app.
+    if (!path) return;
+    await writeFile(path, new TextEncoder().encode(html));
+  });
+
+  const exportMapVisualHtml = () => runExport("HTML", async () => {
+    if (!activeMap) return;
+    const layoutStyle = normalizeLayoutStyle(
+      activeMap.layoutStyle ?? vaultSettings.defaultLayoutStyle ?? "right",
+    );
+    const layout = resolveLayout(
+      activeMap.root,
+      vaultSettings.defaultNodeStyle,
+      layoutStyle,
+      activeMap.positions,
+      null,
+      activeMap.radialDirs,
+      activeMap.floatingNodes,
+      activeMap.links,
+      activeMap.flowDir,
+    );
+    const html = await mapLayoutToVisualHtml(activeMap.title, layout, {
+      layoutStyle,
+      flowDir: activeMap.flowDir,
+      colors: exportThemeColors(),
+      vaultPath,
+    });
+    const path = await save({
+      defaultPath: `${activeMap.title || "map"}.html`,
+      filters: [{ name: "HTML", extensions: ["html"] }],
+    });
+    // Never fall back to blob: for HTML — WebKit navigates and replaces the app.
+    if (!path) return;
+    await writeFile(path, new TextEncoder().encode(html));
   });
 
   const cleanupOrphanImages = async () => {
@@ -242,13 +349,45 @@ export function MenuBar() {
             disabled: !activeMap,
           },
           {
-            label: "Export PNG",
-            onClick: () => void exportPng(),
+            label: "Export PNG (full map)",
+            onClick: () => void exportPngFullMap(),
             disabled: view !== "map" || !activeMap,
+          },
+          {
+            label: "Export PNG (viewport)",
+            onClick: () => void exportPngViewport(),
+            disabled: view !== "map" || !activeMap,
+          },
+          {
+            label: "Export HTML (note)",
+            onClick: () => void exportNoteHtml(),
+            disabled: view !== "note" || !activeNotePath,
+          },
+          {
+            label: "Export map (HTML)",
+            onClick: () => void exportMapVisualHtml(),
+            disabled: !activeMap,
+          },
+          {
+            label: "Export map outline (HTML)",
+            onClick: () => void exportMapOutlineHtml(),
+            disabled: !activeMap,
           },
           {
             label: "Open data grid…",
             onClick: showDataGrid,
+            disabled: !activeMap,
+          },
+          { separator: true, label: "", onClick: () => undefined },
+          {
+            label: "Save map as template…",
+            onClick: () => {
+              const name = window.prompt(
+                "Template name",
+                activeMap?.title ?? "Template",
+              )?.trim();
+              if (name) void saveActiveMapAsTemplate(name);
+            },
             disabled: !activeMap,
           },
           { separator: true, label: "", onClick: () => undefined },
@@ -346,30 +485,25 @@ export function MenuBar() {
             onClick: toggleNoteAside,
             disabled: view !== "note",
           },
+          { separator: true, label: "", onClick: () => undefined },
+          {
+            label: presentationMode
+              ? "Exit presentation mode (Esc)"
+              : "Enter presentation mode (F5)",
+            onClick: () => void togglePresentationMode(),
+            disabled: !presentationMode && view !== "map" && view !== "note",
+          },
         ]}
       />
       <MenuDropdown
         label="Style"
         open={open === "style"}
         onOpen={() => setOpen(open === "style" ? null : "style")}
-        items={[
-          ...TREE_LAYOUTS.map((l) => ({
-            label: `${layoutStyle === l.id ? "✓ " : ""}${l.label}`,
-            onClick: () => setMapLayoutStyle(l.id),
-            disabled: view !== "map",
-          })),
-          { separator: true, label: "", onClick: () => undefined },
-          {
-            label: "Diagrams",
-            onClick: () => undefined,
-            disabled: true,
-          },
-          ...DIAGRAM_LAYOUTS.map((l) => ({
-            label: `${layoutStyle === l.id ? "✓ " : ""}${l.label}`,
-            onClick: () => setMapLayoutStyle(l.id),
-            disabled: view !== "map",
-          })),
-        ]}
+        items={SELECTABLE_LAYOUTS.map((l) => ({
+          label: `${layoutStyle === l.id ? "✓ " : ""}${l.label}`,
+          onClick: () => setMapLayoutStyle(l.id),
+          disabled: view !== "map",
+        }))}
       />
       <MenuDropdown
         label="Themes"

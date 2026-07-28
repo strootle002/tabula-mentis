@@ -24,24 +24,33 @@ import {
   isTagNotesPath,
   listMapFolders,
   listMaps,
+  listMapTemplates,
   listNoteFolders,
   listNotes,
   loadMap,
+  loadMapTemplate,
   loadNote,
   moveLibraryFolder as moveLibraryFolderFs,
   NODE_NOTES_ROOT,
+  renameLibraryFolderFs,
+  renameVaultItem,
   saveCorruptMapRecoveryCopy,
   saveMap,
+  saveMapAtPath,
+  saveMapTemplate,
   saveVaultSettings,
   setAppThemeId,
   uniqueMapFileName,
   moveVaultItem,
 } from "../vault/vaultFs";
+import { cloneNodeWithNewIds, stripNodeContent } from "../mindmap/mapDoc";
+import type { MindMapDocument } from "../mindmap/types";
 import {
   expandFolderAncestors,
   parentFolderPath,
   remapFolderOrderPaths,
   reorderSiblingFolders,
+  withRecentPath,
 } from "../notes/libraryTree";
 import { isJournalFolder } from "../notes/journals";
 import { MindMapFormatError } from "../mindmap/documentFormat";
@@ -54,7 +63,7 @@ import { extractMapNodeTags, flattenMapTags } from "./indexing";
 import { setKeybindingOverrides } from "../mindmap/keymap";
 import { sanitizeOverrides } from "./uiActions";
 
-export type VaultActions = Pick<AppActions, "bootstrap" | "openVault" | "createVault" | "refreshVault" | "setTheme" | "updateVaultSettings" | "openMap" | "createMap" | "archiveItem" | "deleteItem" | "archiveFolder" | "deleteFolder" | "createFolder" | "moveItem" | "reorderLibraryFolder" | "moveLibraryFolder">;
+export type VaultActions = Pick<AppActions, "bootstrap" | "openVault" | "createVault" | "refreshVault" | "setTheme" | "updateVaultSettings" | "openMap" | "createMap" | "archiveItem" | "deleteItem" | "archiveFolder" | "deleteFolder" | "renameItem" | "renameFolder" | "createFolder" | "moveItem" | "reorderLibraryFolder" | "moveLibraryFolder" | "toggleFavoritePath" | "saveActiveMapAsTemplate" | "createMapFromTemplate">;
 
 export function createVaultActions(set: SetState, get: GetState): VaultActions {
   return {
@@ -70,6 +79,9 @@ export function createVaultActions(set: SetState, get: GetState): VaultActions {
         sidebarWidth: sidebar.width,
         sidebarCollapsed: sidebar.collapsed,
         navMode: sidebar.navMode,
+        minimapVisible: sidebar.minimapVisible,
+        nodePanelOpen: sidebar.nodePanelOpen,
+        noteAsideOpen: sidebar.noteAsideOpen,
         keybindings,
       });
       const trustedPath = await reopenTrustedVault();
@@ -175,6 +187,7 @@ export function createVaultActions(set: SetState, get: GetState): VaultActions {
       }),
     );
     const folderStats = await collectFolderStats(vaultPath, libraryFolders);
+    const mapTemplates = await listMapTemplates(vaultPath);
     const corruptSummary =
       corruptMaps.length > 0
         ? `${corruptMaps.length} map${corruptMaps.length === 1 ? "" : "s"} could not be read: ` +
@@ -194,6 +207,7 @@ export function createVaultActions(set: SetState, get: GetState): VaultActions {
       noteIndex: buildNoteIndex(withContent),
       mapTagsByPath,
       mapNodeTags: flattenMapTags(mapTagsByPath),
+      mapTemplates,
       ...(corruptSummary ? { error: corruptSummary } : {}),
     });
   },
@@ -247,6 +261,13 @@ export function createVaultActions(set: SetState, get: GetState): VaultActions {
         mapHistory: [],
         mapFuture: [],
         error: null,
+      });
+      void get().updateVaultSettings({
+        recentPaths: withRecentPath(get().vaultSettings.recentPaths, {
+          kind: "map",
+          path,
+          name: normalized.title,
+        }),
       });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -455,6 +476,112 @@ export function createVaultActions(set: SetState, get: GetState): VaultActions {
     }
   },
 
+  renameItem: async (kind, path, newTitle) => {
+    const { vaultPath, activeMapPath, activeNotePath, activeMap, activeNoteContent } =
+      get();
+    if (!vaultPath) return;
+    const trimmed = newTitle.trim();
+    if (!trimmed) return;
+    try {
+      await flushPendingSaves(get);
+      const newPath = await renameVaultItem(vaultPath, kind, path, trimmed);
+
+      if (kind === "map") {
+        if (activeMapPath === path && activeMap) {
+          clearSavedDocumentAcks(path);
+          set({
+            activeMapPath: newPath,
+            activeMap: { ...activeMap, title: trimmed },
+            dirtyMap: true,
+          });
+          await get().saveActiveMap();
+        } else if (newPath !== path) {
+          const doc = await loadMap(newPath);
+          if (doc.title !== trimmed) {
+            await saveMapAtPath(newPath, { ...doc, title: trimmed });
+          }
+        }
+      } else if (activeNotePath === path) {
+        clearSavedDocumentAcks(path);
+        rememberSavedNote(newPath, activeNoteContent);
+        set({ activeNotePath: newPath, activeNoteName: trimmed });
+      }
+      set({ error: null });
+      await get().refreshVault();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      set({ error: `Could not rename item: ${message}` });
+    }
+  },
+
+  renameFolder: async (folderPath, newName) => {
+    const { vaultPath, vaultSettings, activeMapPath, activeNotePath, maps, notes } =
+      get();
+    if (!vaultPath) return;
+    const trimmedName = newName.trim();
+    if (!trimmedName) return;
+    try {
+      await flushPendingSaves(get);
+      const prevMap = maps.find((m) => m.path === activeMapPath) ?? null;
+      const prevNote = notes.find((n) => n.path === activeNotePath) ?? null;
+      const remapItemFolder = (itemFolder: string, from: string, to: string) => {
+        if (itemFolder === from) return to;
+        if (itemFolder.startsWith(`${from}/`)) {
+          return `${to}${itemFolder.slice(from.length)}`;
+        }
+        return itemFolder;
+      };
+
+      const newPath = await renameLibraryFolderFs(
+        vaultPath,
+        folderPath,
+        trimmedName,
+      );
+      if (newPath === folderPath) return;
+
+      const nextOrder = remapFolderOrderPaths(
+        vaultSettings.libraryFolderOrder ?? [],
+        folderPath,
+        newPath,
+      );
+      await get().updateVaultSettings({ libraryFolderOrder: nextOrder });
+      set({
+        expandedFolders: {
+          ...get().expandedFolders,
+          [newPath]: true,
+        },
+        error: null,
+      });
+      await get().refreshVault();
+
+      if (prevMap) {
+        const nextFolder = remapItemFolder(prevMap.folder, folderPath, newPath);
+        if (nextFolder !== prevMap.folder) {
+          const moved = get().maps.find(
+            (m) => m.name === prevMap.name && m.folder === nextFolder,
+          );
+          if (moved) await get().openMap(moved.path);
+        }
+      }
+      if (prevNote) {
+        const nextFolder = remapItemFolder(
+          prevNote.folder,
+          folderPath,
+          newPath,
+        );
+        if (nextFolder !== prevNote.folder) {
+          const moved = get().notes.find(
+            (n) => n.name === prevNote.name && n.folder === nextFolder,
+          );
+          if (moved) await get().openNote(moved.path);
+        }
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      set({ error: `Could not rename folder: ${message}` });
+    }
+  },
+
   createFolder: async (folder) => {
     const { vaultPath } = get();
     if (!vaultPath || !folder.trim()) return;
@@ -628,6 +755,70 @@ export function createVaultActions(set: SetState, get: GetState): VaultActions {
       const message = e instanceof Error ? e.message : String(e);
       set({ error: `Could not move folder: ${message}` });
       return null;
+    }
+  },
+
+  toggleFavoritePath: async (path) => {
+    const favorites = new Set(get().vaultSettings.favoritePaths ?? []);
+    if (favorites.has(path)) favorites.delete(path);
+    else favorites.add(path);
+    await get().updateVaultSettings({ favoritePaths: [...favorites] });
+  },
+
+  saveActiveMapAsTemplate: async (name) => {
+    const { vaultPath, activeMap } = get();
+    if (!vaultPath || !activeMap) return;
+    try {
+      const templateName = (name ?? activeMap.title).trim() || "Template";
+      const now = new Date().toISOString();
+      const floatingNodes = (activeMap.floatingNodes ?? []).map(
+        stripNodeContent,
+      );
+      const doc: MindMapDocument = {
+        version: 1,
+        title: templateName,
+        root: stripNodeContent(activeMap.root),
+        layoutStyle: activeMap.layoutStyle,
+        flowDir: activeMap.flowDir,
+        positions: activeMap.positions,
+        radialDirs: activeMap.radialDirs,
+        floatingNodes: floatingNodes.length ? floatingNodes : undefined,
+        createdAt: now,
+        updatedAt: now,
+      };
+      await saveMapTemplate(vaultPath, templateName, doc);
+      set({ mapTemplates: await listMapTemplates(vaultPath) });
+      get().pushToast(`Saved template "${templateName}"`, "success");
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      set({ error: `Could not save template: ${message}` });
+    }
+  },
+
+  createMapFromTemplate: async (templatePath, title, folder = "") => {
+    const { vaultPath } = get();
+    if (!vaultPath) return;
+    try {
+      const template = await loadMapTemplate(templatePath);
+      const now = new Date().toISOString();
+      const root = cloneNodeWithNewIds(template.root);
+      root.text = title;
+      const doc: MindMapDocument = {
+        ...template,
+        title,
+        root,
+        floatingNodes: template.floatingNodes?.map(cloneNodeWithNewIds),
+        createdAt: now,
+        updatedAt: now,
+      };
+      const fileName = await uniqueMapFileName(vaultPath, title, folder);
+      const path = await saveMap(vaultPath, fileName, doc, folder);
+      set({ createDialog: null });
+      await get().refreshVault();
+      await get().openMap(path);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      set({ error: `Could not create map from template: ${message}` });
     }
   },
   };

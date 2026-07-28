@@ -1,6 +1,6 @@
 [package]
 name = "mindmap"
-version = "0.1.0"
+version = "0.2.0"
 description = "Tabula Mentis: local-first mind maps and linked notes in a folder-based vault"
 authors = ["Tabula Mentis contributors"]
 license = "MIT"

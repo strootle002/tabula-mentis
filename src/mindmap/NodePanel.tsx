@@ -14,13 +14,16 @@ import {
   imageEditorProps,
   pickAndInsertImage,
 } from "../notes/imageSupport";
-import { HashTag } from "../notes/wikiAndTags";
+import { HashTag, WikiLink } from "../notes/wikiAndTags";
 import {
   markdownForEditor,
   splitMarkdownFrontmatter,
 } from "../notes/editorMarkdown";
 import { handleNoteEditorLinkClick } from "../notes/openNoteLink";
+import { resolveWikiTarget } from "../notes/links";
+import { isNodeNotesPath, isTagNotesPath } from "../vault/vaultFs";
 import { assetDisplayUrl } from "../vault/imageAssets";
+import { TaskItem, TaskList } from "@tiptap/extension-list";
 
 const nodeNoteStarterKit = StarterKit.configure({
   link: { openOnClick: false },
@@ -31,6 +34,9 @@ export function NodePanel() {
   const selectedNodeId = useAppStore((s) => s.selectedNodeId);
   const vaultPath = useAppStore((s) => s.vaultPath);
   const openTag = useAppStore((s) => s.openTag);
+  const openNote = useAppStore((s) => s.openNote);
+  const createNote = useAppStore((s) => s.createNote);
+  const noteIndex = useAppStore((s) => s.noteIndex);
   const updateNodeNote = useAppStore((s) => s.updateNodeNote);
   const updateSelectedStyle = useAppStore((s) => s.updateSelectedStyle);
   const updateSelectedText = useAppStore((s) => s.updateSelectedText);
@@ -50,12 +56,27 @@ export function NodePanel() {
   const frontmatterRef = useRef(initialMarkdown.frontmatter);
   const loadedNodeIdRef = useRef(node?.id ?? null);
 
+  const openWiki = (target: string) => {
+    const library = noteIndex.filter(
+      (n) => !isNodeNotesPath(n.folder) && !isTagNotesPath(n.folder),
+    );
+    const hit = resolveWikiTarget(library, target);
+    if (hit) {
+      void openNote(hit.path);
+      return;
+    }
+    void createNote(target);
+  };
+
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
       nodeNoteStarterKit,
+      TaskList,
+      TaskItem.configure({ nested: true }),
       VaultImage,
       HashTag,
+      WikiLink,
       Markdown.configure({
         markedOptions: { gfm: true, breaks: false, pedantic: false },
       }),
@@ -79,9 +100,10 @@ export function NodePanel() {
       ),
       handleDOMEvents: {
         click: (_view, event) => {
-          handleNoteEditorLinkClick(event, (message) =>
-            useAppStore.setState({ error: message }),
-          );
+          handleNoteEditorLinkClick(event, {
+            onError: (message) => useAppStore.setState({ error: message }),
+            onWikiTarget: openWiki,
+          });
           return false;
         },
       },
@@ -155,9 +177,10 @@ export function NodePanel() {
       if (tag) openTag(tag);
       return;
     }
-    handleNoteEditorLinkClick(e, (message) =>
-      useAppStore.setState({ error: message }),
-    );
+    handleNoteEditorLinkClick(e, {
+      onError: (message) => useAppStore.setState({ error: message }),
+      onWikiTarget: openWiki,
+    });
   };
 
   return (
@@ -224,7 +247,7 @@ export function NodePanel() {
             Insert image in note
           </button>
         </div>
-        <div onClickCapture={onNoteClickCapture}>
+        <div className="node-note-editor" onClickCapture={onNoteClickCapture}>
           <EditorContent editor={editor} />
         </div>
       </div>

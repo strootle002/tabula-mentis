@@ -2,11 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   buildFolderTree,
   expandFolderAncestors,
+  filterFolderTree,
+  filterLibraryBundles,
+  filterLibraryEntries,
   isFolderUnder,
   parentFolderPath,
   remapFolderOrderPaths,
   reorderSiblingFolders,
   sortFolderNodes,
+  withRecentPath,
   type LibraryEntry,
   type MapNoteBundle,
 } from "./libraryTree";
@@ -108,5 +112,95 @@ describe("libraryTree", () => {
         "Projects/Ideas",
       ),
     ).toEqual(["Projects/Ideas", "Projects/Ideas/Deep", "Other"]);
+  });
+
+  it("filters root entries and bundles case-insensitively", () => {
+    const entries: LibraryEntry[] = [
+      { kind: "note", name: "Recipes", path: "/a", folder: "" },
+      { kind: "map", name: "Budget", path: "/b", folder: "" },
+    ];
+    expect(filterLibraryEntries(entries, "rec").map((e) => e.name)).toEqual([
+      "Recipes",
+    ]);
+    expect(filterLibraryEntries(entries, "")).toEqual(entries);
+
+    const bundles: MapNoteBundle[] = [
+      {
+        map: { kind: "map", name: "Trip", path: "/m", folder: "" },
+        notes: [{ kind: "note", name: "Packing list", path: "/n", folder: "" }],
+        expandKey: "map-notes:/m",
+      },
+    ];
+    expect(filterLibraryBundles(bundles, "packing")).toHaveLength(1);
+    expect(filterLibraryBundles(bundles, "nope")).toHaveLength(0);
+  });
+
+  it("filters a folder tree, keeping matching folders and matching descendants", () => {
+    const items = new Map<string, LibraryEntry[]>([
+      [
+        "Projects/Ideas",
+        [{ kind: "note", name: "Rocket", path: "/a", folder: "Projects/Ideas" }],
+      ],
+      [
+        "Projects/Notes",
+        [{ kind: "note", name: "Groceries", path: "/b", folder: "Projects/Notes" }],
+      ],
+    ]);
+    const bundles = new Map<string, MapNoteBundle[]>();
+    const tree = buildFolderTree(
+      ["Projects/Ideas", "Projects/Notes"],
+      items,
+      bundles,
+    );
+
+    const byDescendant = filterFolderTree(tree, "rocket");
+    expect(byDescendant).toHaveLength(1);
+    expect(byDescendant[0]?.children.map((c) => c.name)).toEqual(["Ideas"]);
+    expect(byDescendant[0]?.children[0]?.items).toHaveLength(1);
+
+    // A folder-name match keeps its full, unfiltered subtree.
+    const byFolderName = filterFolderTree(tree, "notes");
+    expect(byFolderName[0]?.children.map((c) => c.name)).toEqual(["Notes"]);
+
+    expect(filterFolderTree(tree, "nomatch")).toEqual([]);
+    expect(filterFolderTree(tree, "")).toBe(tree);
+  });
+
+  it("pushes recent paths to the front, deduped and capped", () => {
+    const initial = withRecentPath(undefined, {
+      kind: "map",
+      path: "/a",
+      name: "A",
+    });
+    expect(initial).toEqual([{ kind: "map", path: "/a", name: "A" }]);
+
+    const withB = withRecentPath(initial, {
+      kind: "note",
+      path: "/b",
+      name: "B",
+    });
+    expect(withB.map((r) => r.path)).toEqual(["/b", "/a"]);
+
+    // Re-opening "/a" moves it back to the front instead of duplicating it.
+    const reopened = withRecentPath(withB, {
+      kind: "map",
+      path: "/a",
+      name: "A renamed",
+    });
+    expect(reopened.map((r) => r.path)).toEqual(["/a", "/b"]);
+    expect(reopened[0]?.name).toBe("A renamed");
+
+    const many = Array.from({ length: 5 }, (_, i) => ({
+      kind: "note" as const,
+      path: `/p${i}`,
+      name: `P${i}`,
+    }));
+    const capped = withRecentPath(many, {
+      kind: "note",
+      path: "/new",
+      name: "New",
+    });
+    expect(capped).toHaveLength(5);
+    expect(capped[0]?.path).toBe("/new");
   });
 });
