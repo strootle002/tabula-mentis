@@ -377,7 +377,7 @@ export function MindmapCanvas() {
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [activeMap?.root.id, selectedNodeId]);
+  }, [activeMap?.root, selectedNodeId]);
 
   // Global paste → selected node (focus often isn't on the canvas wrap).
   useEffect(() => {
@@ -1325,7 +1325,7 @@ export function MindmapCanvas() {
                   <g
                     className="collapse-badge"
                     role="button"
-                    tabIndex={0}
+                    tabIndex={-1}
                     aria-label={`${node.collapsed ? "Expand" : "Collapse"} ${node.text || "node"}`}
                     transform={`translate(${node.width + 6}, ${node.height / 2 - 8})`}
                     onKeyDown={(e) => {

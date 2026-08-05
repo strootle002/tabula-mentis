@@ -4,11 +4,25 @@ import type { MindNode, RadialDir } from "../mindmap/types";
 import { createEmptyNode, loadNote, syncNodeNoteToVault, nodeNoteMirrorPath, nodeNotesFolderForMap } from "../vault/vaultFs";
 import { collapseAll, collapseOneLevel, expandAll, expandOneLevel } from "../mindmap/layout";
 import { cloneNodeWithNewIds, collectDescendantIdsInDoc, findNodeInDoc, findParentInDoc, isFloatingRoot, pruneLinks, removeNodeInDoc, updateNodeInDoc } from "../mindmap/mapDoc";
+import { getCanvasWrap } from "../mindmap/canvasDom";
 import { flattenMapTags, upsertMapTagIndex, upsertNoteIndex } from "./indexing";
 import { beginOwnWrite, endOwnWrite } from "./vaultWatcher";
 import { rememberSavedNote } from "./storeServices";
 
 const SUBTREE_CLIPBOARD_KIND = "mindmap-subtree";
+
+/** Recenter viewport and restore keyboard focus after expand/collapse layout changes. */
+function afterCollapseExpand(get: GetState) {
+  get().focusSelectedNode();
+  requestAnimationFrame(() => {
+    if (get().editingNodeId) return;
+    const wrap = getCanvasWrap();
+    const el = wrap?.querySelector(
+      '.node-group[aria-selected="true"]',
+    ) as SVGElement | HTMLElement | null;
+    el?.focus();
+  });
+}
 
 export type MapActions = Pick<AppActions, "setSelectedNode" | "toggleNodeSelection" | "clearNodeSelection" | "deleteSelectedNodes" | "setEditingNode" | "updateSelectedText" | "updateSelectedNote" | "updateNodeNote" | "updateSelectedStyle" | "addChildToSelected" | "addSiblingToSelected" | "deleteSelected" | "copySelectedSubtree" | "pasteSubtreeFromClipboard" | "toggleCollapseSelected" | "setCollapseSelected" | "collapseOneLevelSelected" | "expandOneLevelSelected" | "collapseAllNodes" | "expandAllNodes" | "saveActiveMap">;
 
@@ -400,6 +414,7 @@ export function createMapActions(set: SetState, get: GetState): MapActions {
     }));
     set({ activeMap: next, dirtyMap: true });
     scheduleMapSave(get, set);
+    afterCollapseExpand(get);
   },
 
   collapseOneLevelSelected: () => {
@@ -409,6 +424,7 @@ export function createMapActions(set: SetState, get: GetState): MapActions {
     const root = collapseOneLevel(activeMap.root, selectedNodeId);
     set({ activeMap: { ...activeMap, root }, dirtyMap: true });
     scheduleMapSave(get, set);
+    afterCollapseExpand(get);
   },
 
   expandOneLevelSelected: () => {
@@ -418,17 +434,32 @@ export function createMapActions(set: SetState, get: GetState): MapActions {
     const root = expandOneLevel(activeMap.root, selectedNodeId);
     set({ activeMap: { ...activeMap, root }, dirtyMap: true });
     scheduleMapSave(get, set);
+    afterCollapseExpand(get);
   },
 
   collapseAllNodes: () => {
-    const { activeMap } = get();
+    const { activeMap, selectedNodeId } = get();
     if (!activeMap) return;
     recordMapChange(get, set, "Collapse all");
+    const root = collapseAll(activeMap.root);
+    // After collapse-all only the root stays visible in the main tree.
+    const underMain =
+      selectedNodeId &&
+      selectedNodeId !== root.id &&
+      !!findNodeInDoc({ root, floatingNodes: [] }, selectedNodeId);
     set({
-      activeMap: { ...activeMap, root: collapseAll(activeMap.root) },
+      activeMap: { ...activeMap, root },
       dirtyMap: true,
+      ...(underMain
+        ? {
+            selectedNodeId: root.id,
+            selectedNodeIds: [],
+            editingNodeId: null,
+          }
+        : {}),
     });
     scheduleMapSave(get, set);
+    afterCollapseExpand(get);
   },
 
   expandAllNodes: () => {
@@ -440,6 +471,7 @@ export function createMapActions(set: SetState, get: GetState): MapActions {
       dirtyMap: true,
     });
     scheduleMapSave(get, set);
+    afterCollapseExpand(get);
   },
 
   saveActiveMap: async () => {

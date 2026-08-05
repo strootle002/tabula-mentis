@@ -3,7 +3,7 @@ import { recordMapChange, scheduleMapSave } from "./storeServices";
 import type { MindMapDocument, RadialDir } from "../mindmap/types";
 import { createEmptyNode, setSidebarPrefs } from "../vault/vaultFs";
 import { commitSubtreeMove, resolveLayout } from "../mindmap/layout";
-import { collectDescendantIdsInDoc, createMapLink, placeNodeAsSiblingInDoc, reparentNodeInDoc } from "../mindmap/mapDoc";
+import { collectDescendantIdsInDoc, createMapLink, findParentInDoc, placeNodeAsSiblingInDoc, reparentNodeInDoc } from "../mindmap/mapDoc";
 import { usesSpatialNavigation, normalizeLayoutStyle } from "../mindmap/layoutCatalog";
 import { pickSpatialNeighbor } from "../mindmap/spatialNav";
 import { getCanvasWrap } from "../mindmap/canvasDom";
@@ -270,11 +270,31 @@ export function createMapLayoutActions(set: SetState, get: GetState): MapLayoutA
       activeMap.flowDir,
     );
     const current = layout.nodes.find((n) => n.id === selectedNodeId);
-    if (!current) return;
+    if (!current) {
+      // Selection may sit under a collapsed ancestor — clamp to nearest visible node.
+      let walk: string | null = selectedNodeId;
+      let visibleId: string | null = null;
+      while (walk) {
+        const parent = findParentInDoc(activeMap, walk);
+        if (!parent) {
+          visibleId = layout.nodes[0]?.id ?? activeMap.root.id;
+          break;
+        }
+        if (layout.nodes.some((n) => n.id === parent.id)) {
+          visibleId = parent.id;
+          break;
+        }
+        walk = parent.id;
+      }
+      if (visibleId) {
+        set({ selectedNodeId: visibleId, editingNodeId: null });
+      }
+      return;
+    }
 
     let nextId: string | null = null;
     if (usesSpatialNavigation(style)) {
-      nextId = pickSpatialNeighbor(layout.nodes, selectedNodeId, dir);
+      nextId = pickSpatialNeighbor(layout.nodes, current.id, dir);
       // On radial/diagram, right into a collapsed node still expands when it's a child
       if (
         dir === "right" &&
