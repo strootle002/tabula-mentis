@@ -7,6 +7,18 @@ Vaults are plain folders you own. No account, no cloud backend.
 
 > **Status:** pre-1.0, active development. Back up vaults. See [limitations](#limitations).
 
+## Screenshots
+
+![Mind map canvas](docs/screenshots/example-mindmap.png)
+
+![Linked note editor](docs/screenshots/example-note.png)
+
+![Tag browser](docs/screenshots/tags-example.png)
+
+![Presentation mode](docs/screenshots/presentation-mode.png)
+
+![Keyboard shortcuts](docs/screenshots/keyboard-shortcuts.png)
+
 ## What's in v0.2
 
 - Nav rail: Journal / Favorites / Library / Tags, plus New, Search (`Ctrl+K`), Settings
