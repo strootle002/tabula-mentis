@@ -19,7 +19,16 @@ Vaults are plain folders you own. No account, no cloud backend.
 
 ![Keyboard shortcuts](docs/screenshots/keyboard-shortcuts.png)
 
-## What's in v0.2
+## What's in v0.3
+
+- Command palette: `Ctrl+K` runs app commands (themes, layouts, exports, toggles) above vault hits
+- Live block embeds: `{{embed ((block-id))}}` transcludes a block from any note, updating as you type
+- Note outline pane: H1–H3 list with click-to-scroll and active-heading tracking
+- Note templates, alongside map templates (File → Save as template…)
+- Journal feature removed; old `notes/journals/` files appear as normal library notes
+- UI polish: icon toolbar with overflow menu, unified focus rings, theme-aware overlays, reduced-motion support
+
+## What was in v0.2
 
 - Nav rail: Favorites / Library / Tags, plus New, Search (`Ctrl+K`), Settings
 - Favorites: pin maps/notes (library context menu → Add to favorites)
