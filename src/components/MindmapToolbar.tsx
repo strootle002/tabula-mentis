@@ -1,6 +1,50 @@
+import { useRef, type ReactNode } from "react";
 import { useAppStore } from "../store/appStore";
 import { mindMapToTable } from "../import-export/io";
 import { findNodeInDoc } from "../mindmap/mapDoc";
+import { ContextMenu, useContextMenu } from "./ContextMenu";
+import {
+  UndoIcon,
+  RedoIcon,
+  HistoryIcon,
+  SiblingIcon,
+  ChildIcon,
+  FloatIcon,
+  LinkIcon,
+  CollapseAllIcon,
+  ExpandAllIcon,
+  FocusIcon,
+  SnapIcon,
+  GridIcon,
+  OverviewIcon,
+  ZoomInIcon,
+  ZoomOutIcon,
+  MoreIcon,
+} from "./toolbarIcons";
+
+type ToolBtnProps = {
+  label: string;
+  title?: string;
+  disabled?: boolean;
+  active?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+};
+
+function ToolBtn({ label, title, disabled, active, onClick, children }: ToolBtnProps) {
+  return (
+    <button
+      type="button"
+      className={`ghost-btn toolbar-icon-btn ${active ? "is-active" : ""}`}
+      disabled={disabled}
+      onClick={onClick}
+      title={title ?? label}
+      aria-label={label}
+    >
+      {children}
+    </button>
+  );
+}
 
 export function MindmapToolbar() {
   const activeMap = useAppStore((s) => s.activeMap);
@@ -12,7 +56,9 @@ export function MindmapToolbar() {
   const collapseOneLevelSelected = useAppStore(
     (s) => s.collapseOneLevelSelected,
   );
-  const expandOneLevelSelected = useAppStore((s) => s.expandOneLevelSelected);
+  const expandOneLevelSelected = useAppStore(
+    (s) => s.expandOneLevelSelected,
+  );
   const updateSelectedStyle = useAppStore((s) => s.updateSelectedStyle);
   const addChildToSelected = useAppStore((s) => s.addChildToSelected);
   const addSiblingToSelected = useAppStore((s) => s.addSiblingToSelected);
@@ -40,6 +86,9 @@ export function MindmapToolbar() {
   );
   const pushToast = useAppStore((s) => s.pushToast);
 
+  const moreMenu = useContextMenu();
+  const moreBtnRef = useRef<HTMLButtonElement>(null);
+
   if (!activeMap) return null;
 
   const node = selectedNodeId
@@ -54,108 +103,94 @@ export function MindmapToolbar() {
     openDataGrid(activeMap.title, headers, rows);
   };
 
+  const openMoreMenu = () => {
+    const rect = moreBtnRef.current?.getBoundingClientRect();
+    moreMenu.openMenu(rect?.left ?? 0, (rect?.bottom ?? 0) + 4, [
+      {
+        label: "Copy subtree",
+        disabled: !selectedNodeId,
+        onClick: () =>
+          void copySelectedSubtree().then((ok) => {
+            if (ok) pushToast("Copied subtree", "success");
+          }),
+      },
+      {
+        label: "Paste subtree",
+        onClick: () =>
+          void pasteSubtreeFromClipboard().then((ok) => {
+            if (ok) pushToast("Pasted subtree", "success");
+          }),
+      },
+      { separator: true, label: "", onClick: () => {} },
+      {
+        label: "Collapse one level",
+        onClick: collapseOneLevelSelected,
+      },
+      {
+        label: "Expand one level",
+        onClick: expandOneLevelSelected,
+      },
+      {
+        label: "Reset layout",
+        onClick: resetLayoutPositions,
+      },
+    ]);
+  };
+
   return (
     <div className="map-toolbar">
       <div className="map-toolbar-group">
-        <button
-          type="button"
-          className="ghost-btn"
+        <ToolBtn
+          label="Undo"
+          title="Undo (Ctrl+Z)"
           disabled={mapHistory.length === 0}
           onClick={undo}
-          title="Undo (Ctrl+Z)"
         >
-          Undo
-        </button>
-        <button
-          type="button"
-          className="ghost-btn"
+          <UndoIcon />
+        </ToolBtn>
+        <ToolBtn
+          label="Redo"
+          title="Redo (Ctrl+Shift+Z)"
           disabled={mapFuture.length === 0}
           onClick={redo}
-          title="Redo (Ctrl+Shift+Z)"
         >
-          Redo
-        </button>
-        <button type="button" className="ghost-btn" onClick={openHistory}>
-          History
-        </button>
-      </div>
-      <div className="map-toolbar-group">
-        <button
-          type="button"
-          className="ghost-btn"
-          onClick={collapseAllNodes}
-          title="Collapse all"
-        >
-          Collapse
-        </button>
-        <button
-          type="button"
-          className="ghost-btn"
-          onClick={expandAllNodes}
-          title="Expand all"
-        >
-          Expand
-        </button>
-        <button
-          type="button"
-          className="ghost-btn"
-          onClick={collapseOneLevelSelected}
-          title="Collapse one level"
-        >
-          − Level
-        </button>
-        <button
-          type="button"
-          className="ghost-btn"
-          onClick={expandOneLevelSelected}
-          title="Expand one level"
-        >
-          + Level
-        </button>
-        <button
-          type="button"
-          className="ghost-btn"
-          onClick={resetLayoutPositions}
-          title="Clear positions and radial arms; restore automatic layout"
-        >
-          Reset
-        </button>
+          <RedoIcon />
+        </ToolBtn>
+        <ToolBtn label="History" title="Map history" onClick={openHistory}>
+          <HistoryIcon />
+        </ToolBtn>
       </div>
 
       <div className="map-toolbar-group">
-        <button
-          type="button"
-          className="ghost-btn"
-          onClick={addSiblingToSelected}
+        <ToolBtn
+          label="Add sibling"
           title="Add sibling (Enter)"
+          onClick={addSiblingToSelected}
         >
-          + Sib
-        </button>
-        <button
-          type="button"
-          className="ghost-btn"
-          onClick={addChildToSelected}
+          <SiblingIcon />
+        </ToolBtn>
+        <ToolBtn
+          label="Add child"
           title="Add child (Tab)"
+          onClick={addChildToSelected}
         >
-          + Child
-        </button>
-        <button
-          type="button"
-          className="ghost-btn"
-          onClick={addFloatingNode}
+          <ChildIcon />
+        </ToolBtn>
+        <ToolBtn
+          label="Add floating node"
           title="Add a floating node (not attached to the tree)"
+          onClick={addFloatingNode}
         >
-          + Float
-        </button>
-        <button
-          type="button"
-          className="ghost-btn"
+          <FloatIcon />
+        </ToolBtn>
+        <ToolBtn
+          label="Link node"
+          title="Link selected node to another node"
           disabled={!selectedNodeId}
           onClick={() => selectedNodeId && beginLinkFrom(selectedNodeId)}
-          title="Link selected node to another node"
         >
-          Link
-        </button>
+          <LinkIcon />
+        </ToolBtn>
       </div>
 
       <div className="map-toolbar-group">
@@ -192,8 +227,9 @@ export function MindmapToolbar() {
         <span className="hint" title="Font size">Aa</span>
         <button
           type="button"
-          className="ghost-btn"
+          className="ghost-btn toolbar-icon-btn"
           disabled={!node}
+          aria-label="Decrease font size"
           onClick={() =>
             updateSelectedStyle({ fontSize: Math.max(10, fontSize - 1) })
           }
@@ -203,8 +239,9 @@ export function MindmapToolbar() {
         <span className="hint">{fontSize}</span>
         <button
           type="button"
-          className="ghost-btn"
+          className="ghost-btn toolbar-icon-btn"
           disabled={!node}
+          aria-label="Increase font size"
           onClick={() =>
             updateSelectedStyle({ fontSize: Math.min(28, fontSize + 1) })
           }
@@ -214,8 +251,9 @@ export function MindmapToolbar() {
         <span className="hint" title="Scale">Size</span>
         <button
           type="button"
-          className="ghost-btn"
+          className="ghost-btn toolbar-icon-btn"
           disabled={!node}
+          aria-label="Decrease node size"
           onClick={() =>
             updateSelectedStyle({ scale: Math.max(0.7, +(scale - 0.1).toFixed(2)) })
           }
@@ -225,8 +263,9 @@ export function MindmapToolbar() {
         <span className="hint">{scale.toFixed(2)}</span>
         <button
           type="button"
-          className="ghost-btn"
+          className="ghost-btn toolbar-icon-btn"
           disabled={!node}
+          aria-label="Increase node size"
           onClick={() =>
             updateSelectedStyle({ scale: Math.min(2, +(scale + 0.1).toFixed(2)) })
           }
@@ -236,81 +275,61 @@ export function MindmapToolbar() {
       </div>
 
       <div className="map-toolbar-group">
-        <button
-          type="button"
-          className="ghost-btn"
-          disabled={!selectedNodeId}
-          onClick={focusSelectedNode}
-          title="Center the selected node in view (F)"
-        >
-          Focus
-        </button>
-        <button
-          type="button"
-          className="ghost-btn"
-          disabled={!selectedNodeId}
-          onClick={() =>
-            void copySelectedSubtree().then((ok) => {
-              if (ok) pushToast("Copied subtree", "success");
-            })
-          }
-          title="Copy selected node + subtree (Ctrl+C)"
-        >
-          Copy
-        </button>
-        <button
-          type="button"
-          className="ghost-btn"
-          onClick={() =>
-            void pasteSubtreeFromClipboard().then((ok) => {
-              if (ok) pushToast("Pasted subtree", "success");
-            })
-          }
-          title="Paste subtree as child of selected node (Ctrl+V)"
-        >
-          Paste
-        </button>
-        <button
-          type="button"
-          className={`ghost-btn ${snapToGrid ? "is-active" : ""}`}
-          onClick={toggleSnapToGrid}
-          title="Snap dragged nodes to a 20px grid (hold Shift to snap once)"
-        >
-          Snap
-        </button>
-      </div>
-
-      <div className="map-toolbar-group">
-        <button
-          type="button"
-          className="ghost-btn"
+        <ToolBtn label="Collapse all" onClick={collapseAllNodes}>
+          <CollapseAllIcon />
+        </ToolBtn>
+        <ToolBtn label="Expand all" onClick={expandAllNodes}>
+          <ExpandAllIcon />
+        </ToolBtn>
+        <ToolBtn
+          label="Zoom out"
           onClick={() => setPanZoom(panX, panY, Math.max(0.35, zoom - 0.1))}
         >
-          −
-        </button>
+          <ZoomOutIcon />
+        </ToolBtn>
         <span className="hint">{Math.round(zoom * 100)}%</span>
-        <button
-          type="button"
-          className="ghost-btn"
+        <ToolBtn
+          label="Zoom in"
           onClick={() => setPanZoom(panX, panY, Math.min(2.5, zoom + 0.1))}
         >
-          +
-        </button>
-        <button
-          type="button"
-          className="ghost-btn"
-          onClick={showGrid}
-          title="Open data grid"
+          <ZoomInIcon />
+        </ToolBtn>
+        <ToolBtn
+          label="Focus node"
+          title="Center the selected node in view (F)"
+          disabled={!selectedNodeId}
+          onClick={focusSelectedNode}
         >
-          Grid
-        </button>
-        <button
-          type="button"
-          className={`ghost-btn ${minimapVisible ? "is-active" : ""}`}
-          onClick={toggleMinimap}
+          <FocusIcon />
+        </ToolBtn>
+        <ToolBtn
+          label="Snap to grid"
+          title="Snap dragged nodes to a 20px grid (hold Shift to snap once)"
+          active={snapToGrid}
+          onClick={toggleSnapToGrid}
+        >
+          <SnapIcon />
+        </ToolBtn>
+        <ToolBtn
+          label="Map overview"
           title={minimapVisible ? "Hide map overview" : "Show map overview"}
+          active={minimapVisible}
+          onClick={toggleMinimap}
         >
-          Overview
+          <OverviewIcon />
+        </ToolBtn>
+        <ToolBtn label="Data grid" title="Open data grid" onClick={showGrid}>
+          <GridIcon />
+        </ToolBtn>
+        <button
+          ref={moreBtnRef}
+          type="button"
+          className="ghost-btn toolbar-icon-btn"
+          onClick={openMoreMenu}
+          title="More actions"
+          aria-label="More actions"
+        >
+          <MoreIcon />
         </button>
       </div>
 
@@ -328,6 +347,15 @@ export function MindmapToolbar() {
           {nodePanelOpen ? "Hide panel ›" : "‹ Show panel"}
         </button>
       </div>
+
+      {moreMenu.menu && (
+        <ContextMenu
+          x={moreMenu.menu.x}
+          y={moreMenu.menu.y}
+          items={moreMenu.menu.items}
+          onClose={moreMenu.closeMenu}
+        />
+      )}
     </div>
   );
 }

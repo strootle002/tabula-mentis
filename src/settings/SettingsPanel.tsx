@@ -67,9 +67,7 @@ export function SettingsPanel() {
 
   return (
     <div className="settings-view">
-      <h2 style={{ fontFamily: "var(--font-display)", marginTop: 0 }}>
-        Settings
-      </h2>
+      <h2 className="heading-display">Settings</h2>
       <p className="hint">
         Layout defaults apply across the vault. Per-node colors still override
         defaults on the canvas. Use Style for the open map’s layout, and Themes
@@ -98,7 +96,7 @@ export function SettingsPanel() {
         </div>
       )}
 
-      <h3 style={{ fontFamily: "var(--font-display)" }}>Default mindmap layout</h3>
+      <h3 className="heading-section">Default mindmap layout</h3>
       <div className="settings-grid">
         {SELECTABLE_LAYOUTS.map((l) => (
           <button
@@ -114,7 +112,7 @@ export function SettingsPanel() {
         ))}
       </div>
 
-      <h3 style={{ fontFamily: "var(--font-display)", marginTop: "1.5rem" }}>
+      <h3 className="heading-section">
         Light themes
       </h3>
       <div className="settings-grid">
@@ -136,7 +134,7 @@ export function SettingsPanel() {
         ))}
       </div>
 
-      <h3 style={{ fontFamily: "var(--font-display)", marginTop: "1.5rem" }}>
+      <h3 className="heading-section">
         Dark themes
       </h3>
       <div className="settings-grid">
@@ -158,7 +156,7 @@ export function SettingsPanel() {
         ))}
       </div>
 
-      <h3 style={{ fontFamily: "var(--font-display)", marginTop: "1.5rem" }}>
+      <h3 className="heading-section">
         Default node style
       </h3>
       <div
@@ -242,7 +240,7 @@ export function SettingsPanel() {
         </div>
       </div>
 
-      <h3 style={{ fontFamily: "var(--font-display)", marginTop: "1.5rem" }}>
+      <h3 className="heading-section">
         Canvas &amp; autosave
       </h3>
       <div
@@ -291,7 +289,7 @@ export function SettingsPanel() {
         </p>
       )}
 
-      <h3 style={{ fontFamily: "var(--font-display)", marginTop: "1.5rem" }}>
+      <h3 className="heading-section">
         Keyboard shortcuts
       </h3>
       <p className="hint">
