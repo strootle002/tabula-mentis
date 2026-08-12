@@ -86,7 +86,7 @@ export function ShortcutsModal() {
                   <td>
                     <kbd>Ctrl+K</kbd>
                   </td>
-                  <td>Search vault (notes, maps, nodes, tags, paths)</td>
+                  <td>Search &amp; commands (notes, maps, nodes, tags, actions)</td>
                 </tr>
                 <tr>
                   <td>

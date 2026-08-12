@@ -15,16 +15,6 @@ const base = {
   "aria-hidden": true as const,
 };
 
-export function JournalIcon({ className, title }: IconProps) {
-  return (
-    <svg {...base} className={className}>
-      {title ? <title>{title}</title> : null}
-      <rect x="4" y="3" width="16" height="18" rx="2" />
-      <path d="M8 7h8M8 11h8M8 15h5" />
-    </svg>
-  );
-}
-
 export function LibraryIcon({ className, title }: IconProps) {
   return (
     <svg {...base} className={className}>

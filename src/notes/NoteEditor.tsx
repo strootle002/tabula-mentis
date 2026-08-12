@@ -1,4 +1,4 @@
-import { useEditor, EditorContent } from "@tiptap/react";
+import { useEditor, EditorContent, ReactNodeViewRenderer } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import { Markdown } from "@tiptap/markdown";
@@ -7,7 +7,8 @@ import { useAppStore } from "../store/appStore";
 import { NoteToolbar } from "./NoteToolbar";
 import { VaultImage, imageEditorProps } from "./imageSupport";
 import { HashTag, WikiLink } from "./wikiAndTags";
-import { formatJournalHeading, isContinuousJournal, isJournalNote } from "./journals";
+import { BlockEmbed } from "./blockEmbed";
+import { BlockEmbedView } from "./BlockEmbedView";
 import {
   markdownForEditor,
   splitMarkdownFrontmatter,
@@ -32,23 +33,16 @@ export function NoteEditor() {
   const activeNotePath = useAppStore((s) => s.activeNotePath);
   const vaultPath = useAppStore((s) => s.vaultPath);
   const setNoteContent = useAppStore((s) => s.setNoteContent);
-  const notes = useAppStore((s) => s.notes);
   const noteIndex = useAppStore((s) => s.noteIndex);
   const openTag = useAppStore((s) => s.openTag);
   const openNote = useAppStore((s) => s.openNote);
   const createNote = useAppStore((s) => s.createNote);
   const noteAsideOpen = useAppStore((s) => s.noteAsideOpen);
-  const journalFocusDate = useAppStore((s) => s.journalFocusDate);
-  const setJournalFocusDate = useAppStore((s) => s.setJournalFocusDate);
   const presentationMode = useAppStore((s) => s.presentationMode);
 
   const editorRef = useRef<ReturnType<typeof useEditor>>(null);
   const initialMarkdown = splitMarkdownFrontmatter(activeNoteContent);
   const frontmatterRef = useRef(initialMarkdown.frontmatter);
-
-  const noteMeta = notes.find((n) => n.path === activeNotePath);
-  const isJournal =
-    !!noteMeta && isJournalNote(noteMeta.name, noteMeta.folder);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -60,13 +54,16 @@ export function NoteEditor() {
       VaultImage,
       HashTag,
       WikiLink,
+      BlockEmbed.extend({
+        addNodeView() {
+          return ReactNodeViewRenderer(BlockEmbedView);
+        },
+      }),
       Markdown.configure({
         markedOptions: { gfm: true, breaks: false, pedantic: false },
       }),
       Placeholder.configure({
-        placeholder: isJournal
-          ? "Write freely. Tag ideas with #idea…"
-          : "Write a longform note. Use #tags and [[WikiLinks]]…",
+        placeholder: "Write a longform note. Use #tags and [[WikiLinks]]…",
       }),
     ],
     content: markdownForEditor(initialMarkdown.body, vaultPath),
@@ -102,24 +99,6 @@ export function NoteEditor() {
       frontmatterRef.current = parts.frontmatter;
     }
   }, [activeNotePath, activeNoteContent, editor]);
-
-  useEffect(() => {
-    if (!journalFocusDate || !editor) return;
-    const wantedHeading = formatJournalHeading(journalFocusDate);
-    const frame = requestAnimationFrame(() => {
-      const headings = document.querySelectorAll(
-        ".note-editor-body .ProseMirror h1",
-      );
-      for (const heading of headings) {
-        if (heading.textContent?.trim() === wantedHeading) {
-          heading.scrollIntoView({ behavior: "smooth", block: "start" });
-          break;
-        }
-      }
-      setJournalFocusDate(null);
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [journalFocusDate, editor, activeNoteContent, setJournalFocusDate]);
 
   if (!activeNotePath) {
     return (
@@ -162,10 +141,7 @@ export function NoteEditor() {
     });
   };
 
-  const title =
-    isJournal && isContinuousJournal(noteMeta!.name, noteMeta!.folder)
-      ? "Journal"
-      : (activeNoteName ?? "Note");
+  const title = activeNoteName ?? "Note";
 
   return (
     <div
@@ -190,7 +166,7 @@ export function NoteEditor() {
           )}
         </div>
       </div>
-      {!presentationMode && noteAsideOpen && <NoteAside />}
+      {!presentationMode && noteAsideOpen && <NoteAside editor={editor} />}
     </div>
   );
 }

@@ -11,15 +11,18 @@ export function CreateDialog() {
   const createMap = useAppStore((s) => s.createMap);
   const createMapFromTemplate = useAppStore((s) => s.createMapFromTemplate);
   const createNote = useAppStore((s) => s.createNote);
+  const createNoteFromTemplate = useAppStore((s) => s.createNoteFromTemplate);
   const createFolder = useAppStore((s) => s.createFolder);
   const noteFolders = useAppStore((s) => s.noteFolders);
   const mapFolders = useAppStore((s) => s.mapFolders);
   const mapTemplates = useAppStore((s) => s.mapTemplates);
+  const noteTemplates = useAppStore((s) => s.noteTemplates);
 
   const [title, setTitle] = useState("");
   const [layout, setLayout] = useState<MapLayoutStyle>("right");
   const [folder, setFolder] = useState("");
   const [mapTemplatePath, setMapTemplatePath] = useState("");
+  const [noteTemplatePath, setNoteTemplatePath] = useState("");
   const titleInputRef = useRef<HTMLInputElement>(null);
   const { dialogProps, titleId } = useAccessibleDialog(
     !!createDialog,
@@ -41,6 +44,7 @@ export function CreateDialog() {
     setLayout("right");
     setFolder("");
     setMapTemplatePath("");
+    setNoteTemplatePath("");
   }, [createDialog]);
 
   if (!createDialog) return null;
@@ -110,7 +114,12 @@ export function CreateDialog() {
         void createMap(mapTitle, layout, folder.trim());
       }
     } else if (kind === "note") {
-      void createNote(title.trim() || "Untitled Note", folder.trim());
+      const noteTitle = title.trim() || "Untitled Note";
+      if (noteTemplatePath) {
+        void createNoteFromTemplate(noteTemplatePath, noteTitle, folder.trim());
+      } else {
+        void createNote(noteTitle, folder.trim());
+      }
     } else void createFolder(title.trim());
   };
 
@@ -177,6 +186,32 @@ export function CreateDialog() {
                   type="button"
                   className={`theme-card ${mapTemplatePath === t.path ? "active" : ""}`}
                   onClick={() => setMapTemplatePath(t.path)}
+                >
+                  <strong>{t.name}</strong>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {kind === "note" && noteTemplates.length > 0 && (
+          <div className="field">
+            <label>Template</label>
+            <div className="create-layout-grid">
+              <button
+                type="button"
+                className={`theme-card ${!noteTemplatePath ? "active" : ""}`}
+                onClick={() => setNoteTemplatePath("")}
+              >
+                <strong>Blank</strong>
+                <div className="hint">Start from scratch</div>
+              </button>
+              {noteTemplates.map((t) => (
+                <button
+                  key={t.path}
+                  type="button"
+                  className={`theme-card ${noteTemplatePath === t.path ? "active" : ""}`}
+                  onClick={() => setNoteTemplatePath(t.path)}
                 >
                   <strong>{t.name}</strong>
                 </button>

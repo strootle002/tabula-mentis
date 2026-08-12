@@ -1,6 +1,5 @@
 import type {
   FlowDir,
-  MapContentProvenance,
   MapLayoutStyle,
   MindMapDocument,
   NodeImage,
@@ -117,6 +116,8 @@ function normalizeLegacyNode(
     ];
   }
   delete normalized.image;
+  // Legacy generator-owned marker from the retired concept graph; inert now.
+  delete normalized.provenance;
 
   if (Array.isArray(value.children)) {
     normalized.children = value.children.map((child, index) =>
@@ -184,6 +185,14 @@ function migrateDocument(
       ),
     );
   }
+  if (Array.isArray(value.links)) {
+    // Drop retired generator provenance from links (see normalizeLegacyNode).
+    migrated.links = value.links.map((link) => {
+      if (!isRecord(link) || link.provenance === undefined) return link;
+      const { provenance: _legacy, ...rest } = link;
+      return rest;
+    });
+  }
   return migrated;
 }
 
@@ -219,17 +228,6 @@ function validateTimestamp(value: unknown, path: string): void {
   if (!Number.isFinite(Date.parse(value))) {
     fail(path, "must be a valid timestamp");
   }
-}
-
-function validateProvenance(
-  value: unknown,
-  path: string,
-): asserts value is MapContentProvenance {
-  if (!isRecord(value)) fail(path, "must be an object");
-  if (value.kind !== "journal-concept") {
-    fail(`${path}.kind`, 'must be "journal-concept"');
-  }
-  requireString(value.key, `${path}.key`, { nonEmpty: true });
 }
 
 /** Validate every reachable field and return the value with its runtime type narrowed. */
@@ -309,9 +307,6 @@ export function assertMindMapDocument(
       fail(`${path}.collapsed`, "must be a boolean");
     }
     if (node.style !== undefined) validateStyle(node.style, `${path}.style`);
-    if (node.provenance !== undefined) {
-      validateProvenance(node.provenance, `${path}.provenance`);
-    }
     if (node.images !== undefined) {
       if (!Array.isArray(node.images)) fail(`${path}.images`, "must be an array");
       imageCount += node.images.length;
@@ -383,9 +378,6 @@ export function assertMindMapDocument(
         fail(`${path}.toId`, `references unknown node "${link.toId}"`);
       }
       assertOptionalString(link.label, `${path}.label`);
-      if (link.provenance !== undefined) {
-        validateProvenance(link.provenance, `${path}.provenance`);
-      }
     });
   }
 }

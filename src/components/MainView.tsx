@@ -5,10 +5,6 @@ import {
   FLOW_DIRS,
   normalizeLayoutStyle,
 } from "../mindmap/layoutCatalog";
-import {
-  isContinuousJournal,
-  isJournalNote,
-} from "../notes/journals";
 
 const MindmapCanvas = lazy(() =>
   import("../mindmap/MindmapCanvas").then((module) => ({
@@ -53,8 +49,6 @@ export function MainView() {
   const view = useAppStore((s) => s.view);
   const activeMap = useAppStore((s) => s.activeMap);
   const activeNoteName = useAppStore((s) => s.activeNoteName);
-  const activeNotePath = useAppStore((s) => s.activeNotePath);
-  const notes = useAppStore((s) => s.notes);
   const activeTag = useAppStore((s) => s.activeTag);
   const dirtyMap = useAppStore((s) => s.dirtyMap);
   const dirtyNote = useAppStore((s) => s.dirtyNote);
@@ -64,23 +58,11 @@ export function MainView() {
   const setFlowDir = useAppStore((s) => s.setFlowDir);
   const vaultSettings = useAppStore((s) => s.vaultSettings);
 
-  const journalMeta = notes.find((n) => n.path === activeNotePath);
-  const viewingJournal =
-    view === "note" &&
-    !!journalMeta &&
-    isJournalNote(journalMeta.name, journalMeta.folder);
-
   const title =
     view === "map"
       ? activeMap?.title ?? "Map"
       : view === "note"
-        ? viewingJournal &&
-          journalMeta &&
-          isContinuousJournal(journalMeta.name, journalMeta.folder)
-          ? "Journal"
-          : viewingJournal
-            ? `Journal · ${activeNoteName}`
-            : (activeNoteName ?? "Note")
+        ? (activeNoteName ?? "Note")
         : view === "tag"
           ? `#${activeTag}`
           : view === "data"

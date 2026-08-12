@@ -57,24 +57,20 @@ describe("mind map document format", () => {
     );
   });
 
-  it("validates generated concept provenance on nodes and links", () => {
-    const nodeDoc = validDocument();
+  it("strips retired generator provenance from nodes and links", () => {
+    const doc = validDocument();
     const child = (
-      (nodeDoc.root as Record<string, unknown>).children as Record<string, unknown>[]
+      (doc.root as Record<string, unknown>).children as Record<string, unknown>[]
     )[0]!;
-    child.provenance = { kind: "other-generator", key: "child" };
-    expect(() => parseMindMapDocument(nodeDoc)).toThrow(
-      '$.root.children[0].provenance.kind: must be "journal-concept"',
-    );
-
-    const linkDoc = validDocument();
-    (linkDoc.links as Record<string, unknown>[])[0]!.provenance = {
+    child.provenance = { kind: "journal-concept", key: "child" };
+    (doc.links as Record<string, unknown>[])[0]!.provenance = {
       kind: "journal-concept",
-      key: "",
+      key: "a|b",
     };
-    expect(() => parseMindMapDocument(linkDoc)).toThrow(
-      "$.links[0].provenance.key: must not be empty",
-    );
+
+    const parsed = parseMindMapDocument(doc);
+    expect("provenance" in parsed.root.children[0]!).toBe(false);
+    expect("provenance" in (parsed.links?.[0] ?? {})).toBe(false);
   });
 
   it("rejects unsupported future versions with upgrade guidance", () => {

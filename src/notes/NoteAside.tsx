@@ -1,14 +1,16 @@
 import { useMemo } from "react";
+import type { Editor } from "@tiptap/react";
 import { useAppStore } from "../store/appStore";
 import {
   backlinksForNote,
   outgoingLinksForNote,
   resolveWikiTarget,
 } from "./links";
+import { NoteOutline } from "./NoteOutline";
 import { isNodeNotesPath, isTagNotesPath } from "../vault/vaultFs";
 
-/** Right-hand note panel: backlinks, outgoing links, and tips. */
-export function NoteAside() {
+/** Right-hand note panel: outline, backlinks, outgoing links, and tips. */
+export function NoteAside({ editor }: { editor: Editor | null }) {
   const activeNotePath = useAppStore((s) => s.activeNotePath);
   const activeNoteName = useAppStore((s) => s.activeNoteName);
   const noteIndex = useAppStore((s) => s.noteIndex);
@@ -55,6 +57,8 @@ export function NoteAside() {
 
   return (
     <aside className="note-aside">
+      <NoteOutline editor={editor} />
+
       <h3>Linked from</h3>
       {backlinks.length === 0 ? (
         <p className="hint">No other notes link here yet.</p>

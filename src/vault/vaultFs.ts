@@ -59,9 +59,9 @@ export async function setAppThemeId(themeId: string): Promise<void> {
   await store.save();
 }
 
-export type NavMode = "journal" | "favorites" | "library" | "tags";
+export type NavMode = "favorites" | "library" | "tags";
 
-const NAV_MODES: NavMode[] = ["journal", "favorites", "library", "tags"];
+const NAV_MODES: NavMode[] = ["favorites", "library", "tags"];
 
 function clampSidebarWidth(width: number): number {
   return Math.min(520, Math.max(220, Math.round(width)));
@@ -354,6 +354,52 @@ export async function loadMapTemplate(path: string): Promise<MindMapDocument> {
   return parseMindMapJson(raw, path);
 }
 
+export function vaultNoteTemplatesDir(vaultPath: string) {
+  return joinPath(vaultMetaDir(vaultPath), "note-templates");
+}
+
+/** List saved note templates under mindmap-meta/note-templates/. */
+export async function listNoteTemplates(
+  vaultPath: string,
+): Promise<{ name: string; path: string }[]> {
+  const dir = vaultNoteTemplatesDir(vaultPath);
+  if (!(await exists(dir))) return [];
+  const results: { name: string; path: string }[] = [];
+  for (const entry of await readDir(dir)) {
+    if (entry.name?.endsWith(".md") && !entry.isDirectory) {
+      results.push({
+        name: entry.name.replace(/\.md$/, ""),
+        path: joinPath(dir, entry.name),
+      });
+    }
+  }
+  return results.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Persist note markdown as a reusable template. */
+export async function saveNoteTemplate(
+  vaultPath: string,
+  name: string,
+  content: string,
+): Promise<string> {
+  const dir = vaultNoteTemplatesDir(vaultPath);
+  if (!(await exists(dir))) await mkdir(dir, { recursive: true });
+  const base = slugify(name || "template");
+  let candidate = `${base}.md`;
+  let n = 2;
+  while (await exists(joinPath(dir, candidate))) {
+    candidate = `${base}-${n}.md`;
+    n += 1;
+  }
+  const path = joinPath(dir, candidate);
+  await writeTextFileSafely(path, content);
+  return path;
+}
+
+export async function loadNoteTemplate(path: string): Promise<string> {
+  return readTextFile(path);
+}
+
 export function createEmptyNode(text = "New node"): MindNode {
   return {
     id: crypto.randomUUID(),
@@ -492,9 +538,7 @@ export async function ensureVaultStructure(vaultPath: string): Promise<void> {
   for (const dir of [
     vaultMapsDir(vaultPath),
     vaultNotesDir(vaultPath),
-    joinPath(vaultNotesDir(vaultPath), "journals"),
     joinPath(vaultNotesDir(vaultPath), TAG_NOTES_ROOT),
-    joinPath(vaultMapsDir(vaultPath), "journals"),
     vaultAssetsDir(vaultPath),
     vaultImportsDir(vaultPath),
     vaultArchiveDir(vaultPath),

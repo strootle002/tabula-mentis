@@ -10,19 +10,20 @@ import {
   maybeToastSaved,
 } from "./storeServices";
 import {
-  archiveEntry,
   createNotesFolder,
   isNodeNotesPath,
   isTagNotesPath,
+  listNoteTemplates,
   loadMap,
   loadNote,
+  loadNoteTemplate,
   saveNote,
+  saveNoteTemplate,
   setSidebarPrefs,
   tagNoteAbsolutePath,
   TAG_NOTES_ROOT,
   uniqueNoteFileName,
 } from "../vault/vaultFs";
-import { emptyJournalTemplate, ensureTodaySection, isContinuousJournal, isJournalNote, isJournalNoteName, isDailyJournalMerged, JOURNAL_NOTE_FILE, JOURNALS_FOLDER, mergeDailyJournals } from "../notes/journals";
 import { allTags, collectTagHitsFromNotes, extractTags, linesWithTag, relatedTags } from "../notes/links";
 import { withRecentPath } from "../notes/libraryTree";
 import { rootNodeTag, upsertNoteIndex } from "./indexing";
@@ -31,10 +32,8 @@ export type NoteActions = Pick<
   AppActions,
   | "openNote"
   | "createNote"
-  | "openTodayJournal"
-  | "setJournalFocusDate"
-  | "syncConceptGraphFromJournals"
-  | "openConceptGraph"
+  | "saveActiveNoteAsTemplate"
+  | "createNoteFromTemplate"
   | "setNoteContent"
   | "saveActiveNote"
   | "openTag"
@@ -141,99 +140,34 @@ export function createNoteActions(set: SetState, get: GetState): NoteActions {
     }
   },
 
-  openTodayJournal: async () => {
-    const { vaultPath, notes } = get();
-    if (!vaultPath) return;
+  saveActiveNoteAsTemplate: async (name) => {
+    const { vaultPath, activeNotePath, activeNoteName, activeNoteContent } =
+      get();
+    if (!vaultPath || !activeNotePath) return;
     try {
-      await flushPendingSaves(get);
-      await createNotesFolder(vaultPath, JOURNALS_FOLDER);
-
-      const continuous = notes.find((n) =>
-        isContinuousJournal(n.name, n.folder),
-      );
-      let content = continuous
-        ? await loadNote(continuous.path)
-        : "";
-      const dailies = notes.filter(
-        (n) => isJournalNote(n.name, n.folder) && isJournalNoteName(n.name),
-      );
-      let loadedDailies: { name: string; path: string; content: string }[] = [];
-
-      // One-time migration: fold legacy daily YYYY-MM-DD.md files into Journal.md
-      if (!continuous) {
-        if (dailies.length > 0) {
-          loadedDailies = await Promise.all(
-            dailies.map(async (n) => ({
-              name: n.name,
-              path: n.path,
-              content: await loadNote(n.path),
-            })),
-          );
-          content = mergeDailyJournals(loadedDailies);
-        }
-      } else if (dailies.length > 0) {
-        // Retry archives left behind by a previous partial failure, but only
-        // when their content is demonstrably present in Journal.md.
-        loadedDailies = (
-          await Promise.all(
-            dailies.map(async (n) => ({
-              name: n.name,
-              path: n.path,
-              content: await loadNote(n.path),
-            })),
-          )
-        ).filter((daily) => isDailyJournalMerged(content, daily));
-      }
-
-      const next = ensureTodaySection(content || emptyJournalTemplate());
-      let path = continuous?.path;
-      if (!path || next !== content) {
-        path = await saveNote(
-          vaultPath,
-          JOURNAL_NOTE_FILE,
-          next,
-          JOURNALS_FOLDER,
-        );
-      }
-      // Archive only after the merged continuous journal has been persisted.
-      const archiveFailures: { name: string; message: string }[] = [];
-      for (const daily of loadedDailies) {
-        try {
-          await archiveEntry(vaultPath, daily.path);
-        } catch (e) {
-          archiveFailures.push({
-            name: daily.name,
-            message: e instanceof Error ? e.message : String(e),
-          });
-        }
-      }
-      await get().refreshVault();
-      await get().openNote(path);
-      set({ navMode: "journal" });
-      void setSidebarPrefs({ navMode: "journal" });
-      if (archiveFailures.length > 0) {
-        set({
-          error:
-            `Journal.md was saved, but ${archiveFailures.length} legacy journal ` +
-            `file${archiveFailures.length === 1 ? "" : "s"} could not be archived: ` +
-            archiveFailures
-              .map(({ name, message }) => `${name}.md (${message})`)
-              .join("; "),
-        });
-      }
+      const templateName =
+        (name ?? activeNoteName ?? "").trim() || "Template";
+      // The live editor buffer is the source of truth, saved or not.
+      await saveNoteTemplate(vaultPath, templateName, activeNoteContent);
+      set({ noteTemplates: await listNoteTemplates(vaultPath) });
+      get().pushToast(`Saved template "${templateName}"`, "success");
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      set({ error: `Could not open journal: ${message}` });
+      set({ error: `Could not save template: ${message}` });
     }
   },
 
-  setJournalFocusDate: (dateKey) => set({ journalFocusDate: dateKey }),
-
-  // Concept graph is disabled for now (too glitchy). Kept as no-ops so older
-  // vaults / callers do not break if they still reference these actions.
-  syncConceptGraphFromJournals: async () => {},
-
-  openConceptGraph: async () => {},
+  createNoteFromTemplate: async (templatePath, title, folder = "") => {
+    try {
+      const template = await loadNoteTemplate(templatePath);
+      // Retitle a leading H1 so the note body matches its file name.
+      const content = template.replace(/^(\s*)#\s+[^\n]*/, `$1# ${title}`);
+      await get().createNote(title, folder, content);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      set({ error: `Could not create note from template: ${message}` });
+    }
+  },
 
   setNoteContent: (content) => {
     set({ activeNoteContent: content, dirtyNote: true });

@@ -102,7 +102,7 @@ function AboutModal() {
           How it works: pick a vault folder. maps live as JSON under{" "}
           <code>maps/</code>, notes as Markdown under <code>notes/</code>,
           images under <code>assets/</code>. open maps on the canvas, attach
-          notes to nodes, jump tags and journals from the left rail.
+          notes to nodes, jump between tags and favorites from the left rail.
         </p>
         <p>
           Architecture: desktop shell is Tauri. UI is React. state is Zustand.

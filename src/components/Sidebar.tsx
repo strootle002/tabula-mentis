@@ -9,13 +9,6 @@ import {
   slugify,
 } from "../vault/vaultFs";
 import {
-  isConceptGraphMap,
-  isContinuousJournal,
-  isJournalFolder,
-  journalDateKey,
-  listJournalDates,
-} from "../notes/journals";
-import {
   buildFolderTree,
   filterFolderTree,
   filterLibraryBundles,
@@ -37,7 +30,6 @@ import {
   CollapseIcon,
   FavoritesIcon,
   FolderIcon,
-  JournalIcon,
   LibraryIcon,
   MapIcon,
   NewFolderIcon,
@@ -125,8 +117,7 @@ function NavRail({
   const openCreateDialog = useAppStore((s) => s.openCreateDialog);
   const openSettings = useAppStore((s) => s.openSettings);
 
-  const modes: { id: NavMode; label: string; Icon: typeof JournalIcon }[] = [
-    { id: "journal", label: "Journal", Icon: JournalIcon },
+  const modes: { id: NavMode; label: string; Icon: typeof FavoritesIcon }[] = [
     { id: "favorites", label: "Favorites", Icon: FavoritesIcon },
     { id: "library", label: "Library", Icon: LibraryIcon },
     { id: "tags", label: "Tags", Icon: TagsIcon },
@@ -136,7 +127,7 @@ function NavRail({
     id: string;
     label: string;
     title: string;
-    Icon: typeof JournalIcon;
+    Icon: typeof FavoritesIcon;
     onClick: () => void;
   }[] = [
     {
@@ -209,89 +200,6 @@ function NavRail({
             <CollapseIcon />
             <span className="nav-rail-label">{collapsed ? "Show" : "Hide"}</span>
           </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function JournalPane({ onNavigate }: { onNavigate?: () => void }) {
-  const notes = useAppStore((s) => s.notes);
-  const noteIndex = useAppStore((s) => s.noteIndex);
-  const view = useAppStore((s) => s.view);
-  const activeNotePath = useAppStore((s) => s.activeNotePath);
-  const openTodayJournal = useAppStore((s) => s.openTodayJournal);
-  const openNote = useAppStore((s) => s.openNote);
-  const setJournalFocusDate = useAppStore((s) => s.setJournalFocusDate);
-
-  const journalNote = useMemo(
-    () => notes.find((n) => isContinuousJournal(n.name, n.folder)) ?? null,
-    [notes],
-  );
-  const todayKey = journalDateKey();
-  const active =
-    view === "note" &&
-    !!journalNote &&
-    activeNotePath === journalNote.path;
-
-  const journalDates = useMemo(() => {
-    if (!journalNote) return [];
-    const entry = noteIndex.find((n) => n.path === journalNote.path);
-    return entry ? listJournalDates(entry.content) : [];
-  }, [journalNote, noteIndex]);
-
-  const jumpToDate = (dateKey: string) => {
-    if (!journalNote) return;
-    const openThen = activeNotePath === journalNote.path
-      ? Promise.resolve()
-      : openNote(journalNote.path);
-    void openThen.then(() => setJournalFocusDate(dateKey));
-    onNavigate?.();
-  };
-
-  return (
-    <div className="nav-pane journal-pane">
-      <div className="nav-pane-header">
-        <span>Journal</span>
-        <NavHidePanelButton />
-      </div>
-      <div className="nav-pane-body">
-        <div className="sidebar-list">
-          <button
-            type="button"
-            className={`sidebar-item entry-journal ${active ? "active" : ""}`}
-            onClick={() => {
-              void openTodayJournal();
-              onNavigate?.();
-            }}
-            title="Open continuous journal (adds today's heading once)"
-          >
-            <span className="entry-icon journal" aria-hidden>
-              <JournalIcon />
-            </span>
-            <span className="entry-meta">
-              <span className="entry-name">Today’s journal</span>
-              <span className="entry-sub hint">{todayKey}</span>
-            </span>
-          </button>
-        </div>
-        {journalDates.length > 0 && (
-          <div className="library-recent">
-            <div className="library-recent-header hint">Jump to day</div>
-            <div className="sidebar-list">
-              {journalDates.map((d) => (
-                <button
-                  key={d.dateKey}
-                  type="button"
-                  className="sidebar-item entry-journal-date"
-                  onClick={() => jumpToDate(d.dateKey)}
-                  title={`Scroll to ${d.heading}`}
-                >
-                  <span className="entry-name">{d.heading}</span>
-                </button>
-              ))}
-            </div>
-          </div>
         )}
       </div>
     </div>
@@ -546,14 +454,12 @@ function LibraryPane({ onNavigate }: { onNavigate?: () => void }) {
 
     for (const m of maps) {
       if (bundledMapPaths.has(m.path)) continue;
-      if (isConceptGraphMap(m.name, m.folder)) continue;
       place({ ...m, kind: "map" });
     }
 
     for (const n of notes) {
       if (consumedNotePaths.has(n.path)) continue;
       if (nodeNotesMapSlug(n.folder)) continue;
-      if (isJournalFolder(n.folder)) continue;
       if (isTagNotesPath(n.folder)) continue;
       place({ ...n, kind: "note" });
     }
@@ -566,8 +472,6 @@ function LibraryPane({ onNavigate }: { onNavigate?: () => void }) {
         continue;
       }
       if (isTagNotesPath(folder)) continue;
-      if (isJournalFolder(folder)) continue;
-      if (folder === "journals" || folder.startsWith("journals/")) continue;
       if (!folders.has(folder)) folders.set(folder, []);
     }
 
@@ -1343,7 +1247,6 @@ export function Sidebar({
       />
       {!collapsed && (
         <div className="nav-content">
-          {navMode === "journal" && <JournalPane onNavigate={onNavigate} />}
           {navMode === "favorites" && <FavoritesPane onNavigate={onNavigate} />}
           {navMode === "library" && <LibraryPane onNavigate={onNavigate} />}
           {navMode === "tags" && <TagsBrowser onNavigate={onNavigate} />}

@@ -19,21 +19,12 @@ export type RadialDir = "right" | "left" | "down" | "up";
 /** Growth direction for flowchart layout. */
 export type FlowDir = "right" | "left" | "down";
 
-/** Identifies content managed by an automatic graph generator. */
-export interface MapContentProvenance {
-  kind: "journal-concept";
-  /** Stable, generator-owned semantic identity (concept or concept pair). */
-  key: string;
-}
-
 /** Free associative / labeled link (not part of the tree hierarchy). */
 export interface MapLink {
   id: string;
   fromId: string;
   toId: string;
   label?: string;
-  /** Absent for user-created and legacy content. */
-  provenance?: MapContentProvenance;
 }
 
 export interface MindNode {
@@ -49,8 +40,6 @@ export interface MindNode {
   image?: string;
   collapsed?: boolean;
   style?: NodeStyle;
-  /** Absent for user-created and legacy content. */
-  provenance?: MapContentProvenance;
   children: MindNode[];
 }
 
