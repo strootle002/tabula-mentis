@@ -2024,7 +2024,7 @@ name = "mindmap"
 version = "0.3.0"
 dependencies = [
  "libc",
- "notify-debouncer-full",
+ "notify-debouncer-full 0.7.0",
  "serde",
  "serde_json",
  "tauri",
@@ -2132,6 +2132,19 @@ name = "notify-debouncer-full"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "375bd3a138be7bfeff3480e4a623df4cbfb55b79df617c055cd810ba466fa078"
+dependencies = [
+ "file-id",
+ "log",
+ "notify",
+ "notify-types",
+ "walkdir",
+]
+
+[[package]]
+name = "notify-debouncer-full"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c02b49179cfebc9932238d04d6079912d26de0379328872846118a0fa0dbb302"
 dependencies = [
  "file-id",
  "log",
@@ -3575,7 +3588,7 @@ dependencies = [
  "glob",
  "log",
  "notify",
- "notify-debouncer-full",
+ "notify-debouncer-full 0.6.0",
  "objc2-foundation",
  "percent-encoding",
  "schemars 0.8.22",
