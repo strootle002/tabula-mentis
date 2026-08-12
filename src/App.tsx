@@ -11,6 +11,7 @@ import { resolveTransientLinkingState } from "./mindmap/transientInteraction";
 import { SearchPalette } from "./search/SearchPalette";
 import { flushPendingAppSaves, useAppStore } from "./store/appStore";
 import { resolveKeyAction } from "./mindmap/keymap";
+import { version as appVersion } from "../package.json";
 import "./styles/global.css";
 
 const ImportWizard = lazy(() =>
@@ -109,7 +110,7 @@ function AboutModal() {
           grants). your files stay on disk so you can back them up or sync
           however you like.
         </p>
-        <p className="hint">Version 0.1.0 · Tauri + React</p>
+        <p className="hint">Version {appVersion} · Tauri + React</p>
         <div className="modal-actions">
           <button
             type="button"

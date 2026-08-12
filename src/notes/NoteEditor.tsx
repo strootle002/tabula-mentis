@@ -174,15 +174,7 @@ export function NoteEditor() {
       <div className="note-editor-wrap" onClickCapture={onClickCapture}>
         {!presentationMode && (
           <div className="note-editor-header">
-            <h2
-              style={{
-                fontFamily: "var(--font-display)",
-                marginTop: 0,
-                marginBottom: 0,
-              }}
-            >
-              {title}
-            </h2>
+            <h2 className="heading-display">{title}</h2>
             <NoteAsideToggle />
           </div>
         )}
