@@ -43,9 +43,8 @@ export interface AppDataState {
   pendingLink: { fromId: string; toId: string } | null;
   minimapVisible: boolean;
   snapToGrid: boolean;
-  /** Journal day heading to scroll to next time the journal note mounts. */
-  journalFocusDate: string | null;
   mapTemplates: { name: string; path: string }[];
+  noteTemplates: { name: string; path: string }[];
   activeNotePath: string | null;
   activeNoteName: string | null;
   activeNoteContent: string;
@@ -170,10 +169,12 @@ export interface AppActions {
   saveActiveMap: () => Promise<void>;
   openNote: (path: string) => Promise<void>;
   createNote: (title?: string, folder?: string, content?: string) => Promise<void>;
-  openTodayJournal: () => Promise<void>;
-  setJournalFocusDate: (dateKey: string | null) => void;
-  openConceptGraph: () => Promise<void>;
-  syncConceptGraphFromJournals: () => Promise<void>;
+  saveActiveNoteAsTemplate: (name?: string) => Promise<void>;
+  createNoteFromTemplate: (
+    templatePath: string,
+    title: string,
+    folder?: string,
+  ) => Promise<void>;
   createFolder: (folder: string) => Promise<void>;
   moveItem: (
     kind: "map" | "note",

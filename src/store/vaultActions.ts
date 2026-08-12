@@ -27,6 +27,7 @@ import {
   listMapTemplates,
   listNoteFolders,
   listNotes,
+  listNoteTemplates,
   loadMap,
   loadMapTemplate,
   loadNote,
@@ -52,7 +53,6 @@ import {
   reorderSiblingFolders,
   withRecentPath,
 } from "../notes/libraryTree";
-import { isJournalFolder } from "../notes/journals";
 import { MindMapFormatError } from "../mindmap/documentFormat";
 import { reopenTrustedVault, trustSelectedVault } from "../vault/vaultAccess";
 import { normalizeLayoutStyle } from "../mindmap/layoutCatalog";
@@ -181,13 +181,12 @@ export function createVaultActions(set: SetState, get: GetState): VaultActions {
           return false;
         }
         if (isTagNotesPath(folder)) return false;
-        if (isJournalFolder(folder)) return false;
-        if (folder === "journals" || folder.startsWith("journals/")) return false;
         return true;
       }),
     );
     const folderStats = await collectFolderStats(vaultPath, libraryFolders);
     const mapTemplates = await listMapTemplates(vaultPath);
+    const noteTemplates = await listNoteTemplates(vaultPath);
     const corruptSummary =
       corruptMaps.length > 0
         ? `${corruptMaps.length} map${corruptMaps.length === 1 ? "" : "s"} could not be read: ` +
@@ -208,6 +207,7 @@ export function createVaultActions(set: SetState, get: GetState): VaultActions {
       mapTagsByPath,
       mapNodeTags: flattenMapTags(mapTagsByPath),
       mapTemplates,
+      noteTemplates,
       ...(corruptSummary ? { error: corruptSummary } : {}),
     });
   },
@@ -668,8 +668,6 @@ export function createVaultActions(set: SetState, get: GetState): VaultActions {
           return false;
         }
         if (isTagNotesPath(folder)) return false;
-        if (isJournalFolder(folder)) return false;
-        if (folder === "journals" || folder.startsWith("journals/")) return false;
         return true;
       }),
     );

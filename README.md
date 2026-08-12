@@ -21,7 +21,7 @@ Vaults are plain folders you own. No account, no cloud backend.
 
 ## What's in v0.2
 
-- Nav rail: Journal / Favorites / Library / Tags, plus New, Search (`Ctrl+K`), Settings
+- Nav rail: Favorites / Library / Tags, plus New, Search (`Ctrl+K`), Settings
 - Favorites: pin maps/notes (library context menu → Add to favorites)
 - Recents: last 5 opened files in Library
 - Map-as-tag: each map root shows up in tags + search
@@ -50,7 +50,6 @@ Vaults are plain folders you own. No account, no cloud backend.
 **Notes**
 
 - Markdown with `[[WikiLinks]]`, `#tags`, backlinks
-- Journals (continuous + day jump)
 - Block IDs (`^id`), `((id))` refs, embed directives
 - Safe local queries: `text` / `tag` / `page` / `map` / `property` / `task` / `status` with `AND`/`OR`/`NOT`
 
@@ -126,7 +125,7 @@ MyVault/
   mindmap-meta/settings.json
 ```
 
-Plus meta, recovery, journals, node-notes as needed. App prefs + trusted vault path live in OS app-data.
+Plus meta, recovery, and node-notes folders as needed. App prefs + trusted vault path live in OS app-data.
 
 You own the folder. Copy/sync/version it however you like. Keep backups while pre-1.0. Don't edit the same file from two apps at once unless you want conflict cleanup.
 

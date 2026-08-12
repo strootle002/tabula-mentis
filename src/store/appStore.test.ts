@@ -49,7 +49,6 @@ describe("app store slice composition", () => {
     expect([
       state.openVault,
       state.updateSelectedText,
-      state.openTodayJournal,
       state.importFile,
       state.reloadExternalDocument,
       state.toggleSidebar,
@@ -121,23 +120,23 @@ describe("app store slice composition", () => {
     );
   });
 
-  it("indexes a saved journal note without requiring concept-graph sync", async () => {
+  it("indexes a saved note and extracts its tags", async () => {
     const store = createStore(createAppState);
     store.setState({
-      activeNotePath: "/vault/Notes/journals/Journal.md",
-      activeNoteContent: "# Journal\n\n#concept",
+      activeNotePath: "/vault/Notes/ideas.md",
+      activeNoteContent: "# Ideas\n\n#concept",
       dirtyNote: true,
       notes: [{
-        name: "Journal",
-        path: "/vault/Notes/journals/Journal.md",
-        folder: "journals",
+        name: "ideas",
+        path: "/vault/Notes/ideas.md",
+        folder: "",
       }],
     });
 
     await store.getState().saveActiveNote();
 
     expect(store.getState().noteIndex[0]).toMatchObject({
-      name: "Journal",
+      name: "ideas",
       tags: ["concept"],
     });
     expect(store.getState().dirtyNote).toBe(false);
